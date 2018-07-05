@@ -1,5 +1,5 @@
 PL/SQL Developer Test script 3.0
-106
+111
 -- Created on 30.06.2018 by V.ZHURAVOV 
 declare 
   C_SSYLKA_DOC       constant number := 818763;
@@ -64,7 +64,8 @@ declare
                and    vp.nom_vkl = C_NOM_VKL
                and    vp.ssylka_doc = p_doc.ssylka_doc
              )
-      and    c.fk_cntr_type = 6;
+      and    c.fk_cntr_type = 6
+      and    c.fk_document = 13464073;
 
     dbms_output.put_line('Добавлено контрактов: ' || sql%rowcount);
     
@@ -78,6 +79,10 @@ declare
   
   procedure delete_po(p_doc in out nocopy l_po_cur%rowtype) is
   begin
+    
+    delete from assignments a
+    where  a.fk_doc_with_action = p_doc.fk_document;
+  
     delete from pay_order_filters a
     where  a.fk_pay_order = p_doc.fk_document;
     
@@ -93,8 +98,8 @@ begin
   
   l_cnt := 0;
   for d in l_po_cur loop
+    delete_po(d);
     create_po(d);
-    --delete_po(d);
     l_cnt := l_cnt + 1;
   end loop;
   

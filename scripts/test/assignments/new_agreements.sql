@@ -1,19 +1,15 @@
-
 select pa.fk_contract,
              pa.fk_base_contract,
-             bco.fk_account   fk_debit,
+             coalesce(paa.fk_provacct, bco.fk_account)   fk_debit,
              co.fk_account    fk_credit,
+             co.fk_company,
              co.fk_scheme,
              co.fk_contragent,
              pa.effective_date,
              pa.expiration_date,
-             case 
-               when m.paydate <> trunc(to_date(20180430, 'yyyymmdd'), 'MM') then 
-                 pay_gfnpo_pkg.get_pension_amount(co.fk_document, m.paydate)
-               else
-                 pa.amount
-             end amount, 
+             pa.amount pa_amount, 
              m.paydate,
+             paa.amount charge_amount,
              last_day(coalesce(p.deathdate, to_date(20180430, 'yyyymmdd'))) last_pay_date
       from   contracts          co,
              pension_agreements pa,
@@ -28,16 +24,21 @@ select pa.fk_contract,
                from   assignments a
                where  a.fk_credit = co.fk_account
                and    a.fk_paycode = 5054
-               ---????group by trunc(a.paydate, 'MM')
-             ) m --*/
+             ) m,
+             lateral(
+               select paa.fk_provacct, case when m.paydate = paa.from_date then paa.first_amount else paa.amount end amount
+               from   pension_agreement_addendums_v paa
+               where  paa.fk_pension_agreement = pa.fk_contract
+               and    m.paydate between paa.from_date and paa.end_date
+             )(+) paa
       where  1=1 
       and    not exists(
                select 1
                from   pay_restrictions pr
                where  pr.fk_document_cancel is null
-               and    m.paydate between pr.effective_date and  nvl(pr.expiration_date, m.paydate)
+               and    to_date(20170501, 'yyyymmdd') between pr.effective_date and  nvl(pr.expiration_date, m.paydate)
                and    pr.fk_doc_with_acct = co.fk_document
-             ) --*/
+             )
       and    bco.fk_document = pa.fk_base_contract
       and    p.fk_contragent = co.fk_contragent 
       and    co.fk_document = pa.fk_contract
@@ -61,7 +62,7 @@ and pa.fk_contract in (
            select pof.filter_value
            from   pay_order_filters pof
            where  pof.filter_code = 'CONTRACT'
-           and    pof.fk_pay_order = 23159079)
+           and    pof.fk_pay_order = 23159079)--*/
 /
 /*loop
 dbms_output.put_line(i.effective_date);

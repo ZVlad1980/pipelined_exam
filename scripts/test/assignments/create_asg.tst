@@ -1,6 +1,6 @@
 PL/SQL Developer Test script 3.0
 17
-t-- Created on 02.07.2018 by V.ZHURAVOV 
+-- Created on 02.07.2018 by V.ZHURAVOV 
 declare 
   -- Local variables here
   l_result number;
@@ -15,7 +15,7 @@ begin
   if l_result <> 0 then
     raise program_error;
   end if;
-  
+  commit;
 end;
 0
 2

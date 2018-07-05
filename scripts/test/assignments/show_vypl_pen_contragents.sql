@@ -15,5 +15,7 @@ and    c.fk_scheme = sfl.pen_sxem
 and    c.fk_cntr_type = 6
 and    c.fk_contragent = sfl.gf_person
 and    sfl.ssylka = vp.ssylka_fl
+and    vp.nom_ips in (180, 174, 175, 172)
 and    vp.nom_vkl = 50
 and    vp.ssylka_doc = 818763 --C_SSYLKA_DOC
+order by vp.data_op, vp.data_nachisl

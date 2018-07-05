@@ -1,6 +1,6 @@
 create or replace package body assignments_api is
   
- --GC_UNIT_NAME   constant varchar2(32) := $$PLSQL_UNIT;
+  GC_UNIT_NAME   constant varchar2(32) := $$PLSQL_UNIT;
   
   GC_ASG_CHUNK_SIZE  constant number := 10000;
   
@@ -73,7 +73,7 @@ create or replace package body assignments_api is
         g_assignments(i).creation_date,
         g_assignments(i).fk_registry,
         g_assignments(i).direction
-      );
+      ) log errors into err$_assignments (GC_UNIT_NAME) reject limit unlimited;
   /*exception
     when others then
       fix_exception($$PLSQL_LINE, 'flush_assignments failed');
