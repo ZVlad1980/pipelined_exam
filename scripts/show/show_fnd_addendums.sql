@@ -26,3 +26,4 @@ where  d.ssylka = 421
 select *
 from   sp_izm_pd ip
 where  ip.ssylka_fl = 421
+/

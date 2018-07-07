@@ -258,18 +258,6 @@ create or replace package body pay_gfnpo_pkg is
   end add_month$;
   
   /**
-   */
-  function get_pension_amount(
-    p_fk_contract    number,
-    p_effective_date date,
-    p_amount         float,
-    p_paydate        date
-  ) return number is
-  begin
-    return 10;
-  end get_pension_amount;
-  
-  /**
    *
    */
   function get_agreements_cur(
@@ -283,65 +271,65 @@ create or replace package body pay_gfnpo_pkg is
   begin
     --
     l_request := 'select pa.fk_contract,
-             pa.fk_base_contract,
-             nvl(paa.fk_provacct, bco.fk_account)   fk_debit,
-             co.fk_account    fk_credit,
-             co.fk_company,
-             co.fk_scheme,
-             co.fk_contragent,
-             pa.effective_date,
-             pa.expiration_date,
-             m.paydate,
-             paa.amount charge_amount,
-             last_day(coalesce(p.deathdate, coalesce(pa.expiration_date, :1))) last_pay_date
-      from   contracts          co,
-             pension_agreements pa,
-             contracts          bco,
-             people             p, 
-             lateral(
-               select pay_gfnpo_pkg.add_month$(trunc(pa.effective_date, ''MM''), level - 1) paydate
-               from   dual
-               connect by level <= months_between(trunc(coalesce(p.deathdate, coalesce(pa.expiration_date, :2))), trunc(pa.effective_date, ''MM'')) + 1
-              minus
-               select trunc(a.paydate, ''MM'') paydate
-               from   assignments a
-               where  a.fk_credit = co.fk_account
-               and    a.fk_paycode in (' || GC_ASGPC_LIFE || ', ' || GC_ASGPC_TERM || ')
-             ) m,
-             lateral(
-               select paa.fk_provacct, case when m.paydate = paa.from_date then paa.first_amount else paa.amount end amount
-               from   pension_agreement_addendums_v paa
-               where  paa.fk_pension_agreement = pa.fk_contract
-               and    m.paydate between paa.from_date and paa.end_date
-             ) paa
-      where  1=1
-      and    not exists(
-               select 1
-               from   pay_restrictions pr
-               where  pr.fk_document_cancel is null
-               and    m.paydate between pr.effective_date and  nvl(pr.expiration_date, m.paydate)
-               and    pr.fk_doc_with_acct = co.fk_document
-             )
-      and    bco.fk_document = pa.fk_base_contract
-      and    p.fk_contragent = co.fk_contragent 
-      and    co.fk_document = pa.fk_contract
-      and    co.fk_company <> ' || GC_OPS_COMPANY || '
-      and    co.fk_scheme <>  ' || GC_OPS_SCHEME || '
-      and    co.fk_cntr_type = ' || GC_CONTRACT_PEN || '
-      and    pa.state = ' || GC_PAST_PAY || '
-      and    not exists (
-               select 1
-               from   registry_details rd,
-                      registries       rg,
-                      registry_types   rt
-               where  rt.stop_pays = 1
-               and    rt.id = rg.fk_registry_type
-               and    rg.id = rd.fk_registry
-               and    rd.fk_contract = pa.fk_base_contract
-             )
-      and    pa.effective_date <= :3
-      and    pa.isarhv = 0' || chr(10) ||
-    case 
+       pa.fk_base_contract,
+       pa.fk_debit,
+       pa.fk_credit,
+       pa.fk_company,
+       pa.fk_scheme,
+       pa.fk_contragent,
+       pa.effective_date,
+       pa.expiration_date,
+       pa.pa_amount, 
+       m.paydate,
+       paa.amount charge_amount,
+       last_day(least(pa.last_pay_date, :1)) last_pay_date
+from   pension_agreements_v pa, 
+       lateral(
+         select pay_gfnpo_pkg.add_month$(trunc(pa.effective_date, ''MM''), level - 1) paydate
+         from   dual
+         connect by level <= 
+           months_between(
+             trunc(
+               least(
+                 pa.last_pay_date,
+                 :2
+               ),
+               ''MM''
+             ),
+             trunc(pa.effective_date, ''MM'')
+           ) + 1
+        minus
+         select trunc(a.paydate, ''MM'') paydate
+         from   assignments a
+         where  a.fk_credit = pa.fk_credit
+         and    a.fk_paycode in (' || GC_ASGPC_LIFE || ', ' || GC_ASGPC_TERM || ')
+) m,
+       lateral(
+         select paa.fk_provacct, case when m.paydate = paa.from_date then paa.first_amount else paa.amount end amount
+         from   pension_agreement_addendums_v paa
+         where  paa.fk_pension_agreement = pa.fk_contract
+         and    m.paydate between paa.from_date and paa.end_date
+       ) paa
+where  1=1 
+and    not exists(
+         select 1
+         from   pay_restrictions pr
+         where  pr.fk_document_cancel is null
+         and    m.paydate between pr.effective_date and nvl(pr.expiration_date, m.paydate)
+         and    pr.fk_doc_with_acct = pa.fk_contract
+       )
+and    not exists (
+         select 1
+         from   registry_details rd,
+                registries       rg,
+                registry_types   rt
+         where  rt.stop_pays = 1
+         and    rt.id = rg.fk_registry_type
+         and    rg.id = rd.fk_registry
+         and    rd.fk_contract = pa.fk_base_contract
+       )
+and    pa.effective_date <= :3' || chr(10) ||
+    case
       when p_filter_contract = 'Y' then
         'and pa.fk_contract in (
            select pof.filter_value
@@ -361,7 +349,7 @@ create or replace package body pay_gfnpo_pkg is
       when p_contract_type = GC_ASGPC_TERM then
         'and pa.expiration_date is not null'
     end || chr(10) || 
-    'order by case when pa.expiration_date is null then 1 else 2 end, co.fk_company, co.fk_scheme, co.fk_contragent, m.paydate'
+    'order by case when pa.expiration_date is null then 1 else 2 end, pa.fk_company, pa.fk_scheme, pa.fk_contragent, m.paydate'
     ;
     --
     put_line(l_request);
@@ -456,19 +444,6 @@ create or replace package body pay_gfnpo_pkg is
         l_assignment.fk_debit := g_acct_sspv_tbl(l_assignment.fk_scheme);
       end if;
       
-      /*if l_assignment.fk_debit is null then
-        log_write(log_pkg.C_LVL_ERR, ' Не определен дебет-счет-источник, соглашение/контракт: ' || l_agreement.fk_contract || '/' || l_agreement.fk_base_contract || ', дата ' || to_char(l_agreement.paydate, 'dd.mm.yyyy'));
-        continue;
-      end if;
-      if l_assignment.fk_credit is null then
-        log_write(log_pkg.C_LVL_ERR, ' Не определен кредит-счет, соглашение/контракт: ' || l_agreement.fk_contract || '/' || l_agreement.fk_base_contract || ', дата ' || to_char(l_agreement.paydate, 'dd.mm.yyyy'));
-        continue;
-      end if;
-      if l_assignment.amount is null then
-        log_write(log_pkg.C_LVL_ERR, ' Не определена сумма, соглашение/контракт: ' || l_agreement.fk_contract || '/' || l_agreement.fk_base_contract || ', дата ' || to_char(l_agreement.paydate, 'dd.mm.yyyy'));
-        continue;
-      end if;
-      --*/
       assignments_api.push(
         p_assignment => l_assignment
       );
@@ -488,6 +463,47 @@ create or replace package body pay_gfnpo_pkg is
       fix_exception($$PLSQL_LINE, 'fill_charges_pension(' || p_pay_order.pay_order_id || ') failed');
       raise;
   end fill_charges_pension;
+  
+  /**
+   *
+   */
+  procedure show_charges_results(
+    p_pay_order_id pay_orders.fk_document%type
+  ) is
+  
+    procedure show_errors_ is
+      cursor l_errs_cur is
+        select a.ora_err_mesg$, fk_doc_with_acct
+        from   err$_assignments a
+        where  a.fk_doc_with_action = p_pay_order_id
+        group by a.ora_err_mesg$, fk_doc_with_acct
+        order by a.ora_err_mesg$, fk_doc_with_acct;
+      l_ora_err_mesg$ err$_assignments.ora_err_mesg$%type;
+    begin
+      l_ora_err_mesg$ := '#ERROR#';
+      for e in l_errs_cur loop
+        if l_ora_err_mesg$ <> e.ora_err_mesg$ then
+          l_ora_err_mesg$ := e.ora_err_mesg$;
+          log_write(
+            p_msg_level => log_pkg.C_LVL_ERR,
+            p_msg       => 'Ошибка: ' || l_ora_err_mesg$
+          );
+        end if;
+        log_write(
+          p_msg_level => log_pkg.C_LVL_ERR,
+          p_msg       => e.fk_doc_with_acct
+        );
+      end loop;
+    exception
+      when others then
+        --
+        fix_exception($$PLSQL_LINE, 'show_errors_(' || p_pay_order_id || ') failed');
+        raise;
+    end show_errors_;
+    
+  begin
+    show_errors_;
+  end show_charges_results;
   
   /**
    *
@@ -537,26 +553,21 @@ create or replace package body pay_gfnpo_pkg is
           p_pay_order       => l_pay_order,
           p_agreements_cur  => get_agreements_cur(
             p_pay_order       => l_pay_order,
-            p_contract_type   => case to_number(substr(l_pay_order.payment_freqmask, 7, 2)) when 11 then null when 10 then GC_ASGPC_TERM when 1 then GC_ASGPC_LIFE end,
+            p_contract_type   => case to_number(substr(l_pay_order.payment_freqmask, 7, 2)) 
+                                   when 11 then null 
+                                   when 10 then GC_ASGPC_TERM 
+                                   when 1 then GC_ASGPC_LIFE end,
             p_filter_company  => is_exists_filter_(l_pay_order.pay_order_id, GC_POFLTR_COMPANY),
             p_filter_contract => is_exists_filter_(l_pay_order.pay_order_id, GC_POFLTR_CONTRACT)
           )
         );
       end if;
-      
-      /*if substr( vChargesMask,7,1 )='1' then
-         Fill_Charges_TermContracts;
-         end if;
-      TM3:=Sysdate;
-      -- единовременные выплаты
-      if substr( vChargesMask,6,1 )='1' then
-          Fill_Charges_LumpSumContracts;
-          end if;
-      */
     else
       log_write(3, 'Необрабатываемый тип ордера: ' || l_pay_order.fk_pay_order_type);
       raise no_data_found;
     end if;
+    --
+    show_charges_results(l_pay_order.pay_order_id);
     --
     return GC_ST_SUCCESS;
     --
