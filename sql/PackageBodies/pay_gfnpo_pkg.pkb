@@ -12,13 +12,13 @@ create or replace package body pay_gfnpo_pkg is
   
   GC_LM_ASSIGNMENTS  constant number := 1;
   
-  GC_OPS_COMPANY         constant number := 1001;   -- вкладчик ќѕ—
-  GC_OPS_SCHEME          constant number := 7;      -- схема ќѕ—
+  --GC_OPS_COMPANY         constant number := 1001;   -- вкладчик ќѕ—
+  --GC_OPS_SCHEME          constant number := 7;      -- схема ќѕ—
   
-  GC_CONTRACT_PEN        constant number := 6;      -- контракт-пенсионное соглашение
+  --GC_CONTRACT_PEN        constant number := 6;      -- контракт-пенсионное соглашение
   
-  GC_ASGPC_LIFE          constant number := 5054;  -- начисление, код ѕќ∆»«Ќ≈ЌЌјя ѕ≈Ќ—»я 
-  GC_ASGPC_TERM          constant number := 5051;  -- начисление, код —–ќ„Ќјя ѕ≈Ќ—»я
+  GC_ASGPC_LIFE          constant number := 5000;  -- начисление, код ѕќ∆»«Ќ≈ЌЌјя ѕ≈Ќ—»я 
+  GC_ASGPC_TERM          constant number := 5000;  -- начисление, код —–ќ„Ќјя ѕ≈Ќ—»я
   /*GC_ASGPC_LUMP          constant number := 5052;  -- начисление, код ≈ƒ»Ќќ¬–≈ћ≈ЌЌјя ¬џѕЋј“ј
   GC_ASGPC_AUX           constant number := 5053;  -- начисление, код ƒќѕќЋЌ»“≈Ћ№Ќјя ≈¬
   GC_ASGPC_ASSIGNEE      constant number := 5122;  -- начисление, код —”ћћј ѕ–ј¬ќѕ–≈≈ћЌ» ”
@@ -27,7 +27,7 @@ create or replace package body pay_gfnpo_pkg is
   GC_ASG_OP_TYPE         constant number := 2;      -- начисление, код типа дл€ записей начислени€ пенсии
   
   --GC_PAST_NEW        constant number := 0;      -- статус соглашени€ на выплату - новое, готово к проверкам
-  GC_PAST_PAY        constant number := 1;      -- статус соглашени€ на выплату - фаза выплат (ѕЋј“»“№)
+  --GC_PAST_PAY        constant number := 1;      -- статус соглашени€ на выплату - фаза выплат (ѕЋј“»“№)
   --GC_PAST_STOP       constant number := 2;      -- статус соглашени€ на выплату - об€зательства выполнены (Ќ≈ ѕЋј“»“№)
   --GC_PAST_LIST       constant number := 6;      -- статус соглашени€ на выплату - проверено, подготовлено к выплате, включено в список на 1 выплату
   
@@ -225,28 +225,24 @@ create or replace package body pay_gfnpo_pkg is
   end;
   
   procedure init is
+    l_sspv_schemes sys.odcinumberlist := 
+      sys.odcinumberlist(1, 5, 6);
   begin
-    log_write(log_pkg.C_LVL_INF, 'ќпределение счетов ——ѕ¬ дл€ 1 и 6 схем:');
+    log_write(log_pkg.C_LVL_INF, 'ќпределение счетов ——ѕ¬ дл€ 1, 5 и 6 схем:');
     
-    for a in (
-      select ac.id, ac.fk_scheme
-      from   accounts ac
-      where  ac.fk_acct_type = GC_ACCT_TYPE_SSPV
-      and    ac.fk_scheme in (1, 5, 6)
-    ) loop
-      g_acct_sspv_tbl(a.fk_scheme) := a.id;
+    for i in 1..l_sspv_schemes.count loop
+      begin
+        select ac.id
+        into   g_acct_sspv_tbl(l_sspv_schemes(i))
+        from   accounts ac
+        where  ac.fk_acct_type = GC_ACCT_TYPE_SSPV
+        and    ac.fk_scheme = l_sspv_schemes(i);
+      exception
+        when others then
+          fix_exception($$PLSQL_LINE, '  ќшибка: дл€ схемы є' || l_sspv_schemes(i) || ' не найден ——ѕ¬!');
+          raise;
+      end;
     end loop;
-    
-    if not g_acct_sspv_tbl.exists(1) then
-      g_acct_sspv_tbl(1) := 10042;
-      log_write(log_pkg.C_LVL_WRN, '  ƒл€ 1 схемы счет не определен! ”становлен счет ——ѕ¬ дл€ ќѕ—!');
-    end if;
-    
-    if not g_acct_sspv_tbl.exists(6) then
-      g_acct_sspv_tbl(6) := 10042;
-      log_write(log_pkg.C_LVL_WRN, '  ƒл€ 6 схемы счет не определен! ”становлен счет ——ѕ¬ дл€ ќѕ—!');
-    end if;
-    
   end init;
   
   function add_month$(
@@ -373,7 +369,7 @@ and    pa.effective_date <= :3' || chr(10) ||
     when others then
       fix_exception($$PLSQL_LINE, 'get_agreements_cur(' || p_pay_order.pay_order_id || ', ' || p_contract_type || ', ' || p_filter_company || ', ' || p_filter_contract || ') failed');
       raise;
-  end;
+  end get_agreements_cur;
   
   function get_solidary_acct_company(
     p_fk_company  contracts.fk_company%type,

@@ -47,6 +47,7 @@ insert into	pension_agreement_addendums(
           --and    cn.cntr_state = 10
           and    cn.fk_cntr_type = 6
           and    cn.fk_document = spd.ref_kodinsz
+          --and    spd.ref_kodinsz = 15769810
           and    sfl.ssylka = spd.ssylka
         ) t
 /

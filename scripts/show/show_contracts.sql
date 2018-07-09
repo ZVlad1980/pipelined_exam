@@ -1,5 +1,4 @@
-select d.*
-from   (
+--select count(1) from   (
 select spd.ssylka,
        cn.fk_document fk_contract,
        sfl.gf_person,
@@ -14,8 +13,7 @@ select spd.ssylka,
        pa.effective_date,
        pa.amount,
        bcn.fk_account fk_debet,
-       cn.fk_account fk_credit,
-       (select count(1) from pension_agreement_addendums paa where paa.fk_pension_agreement = pa.fk_contract) add_cnt --*/
+       cn.fk_account fk_credit--,       (select count(1) from pension_agreement_addendums paa where paa.fk_pension_agreement = pa.fk_contract) add_cnt --*/
 from   fnd.sp_pen_dog spd,
        fnd.sp_fiz_lits sfl,
        contracts      cn,
@@ -34,10 +32,10 @@ and    pa.fk_contract = cn.fk_document
 and    cn.fk_cntr_type = 6
 and    cn.fk_document = spd.ref_kodinsz
 and    sfl.ssylka = spd.ssylka
-and    cn.fk_document = 11661564
-) d
-where d.add_cnt > 2
-/
+--and    cn.fk_document = 11661564
+--) d where d.add_cnt > 2
+
+/*
 select *
 from   pension_agreement_addendums paa
 where  paa.fk_pension_agreement = 11661564
@@ -53,3 +51,4 @@ select trunc(a.paydate, 'MM') paydate
                from   assignments a
                where  a.fk_credit = 3180321 --co.fk_account
                and    a.fk_paycode = 5054
+--*/
