@@ -275,7 +275,6 @@ create or replace package body pay_gfnpo_pkg is
        pa.fk_contragent,
        pa.effective_date,
        pa.expiration_date,
-       pa.pa_amount, 
        m.paydate,
        paa.amount charge_amount,
        last_day(least(pa.last_pay_date, :1)) last_pay_date
