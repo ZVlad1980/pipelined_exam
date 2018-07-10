@@ -1,3 +1,27 @@
+/*
+delete from pension_agreement_addendums a
+where  a.serialno = 0
+/
+insert into pension_agreement_addendums(
+  id,
+  fk_pension_agreement,
+  fk_base_doc,
+  fk_provacct,
+  serialno,
+  canceled,
+  amount,
+  alt_date_begin,
+  alt_date_end,
+  creation_date
+)
+select *
+from   pension_agreement_addendums@gf_fonddb a
+where  a.fk_pension_agreement in (
+       	 select asg.fk_doc_with_acct
+         from   assignments asg
+         where  asg.fk_doc_with_action = 23236674
+       )
+*/
 insert into	pension_agreement_addendums(
   id,
   fk_pension_agreement,
@@ -51,8 +75,5 @@ insert into	pension_agreement_addendums(
           and    sfl.ssylka = spd.ssylka
         ) t
 /
-/*select *
-from   pension_agreement_addendums paa 
-where  paa.fk_pension_agreement = 11661564
-order by paa.serialno
-*/
+commit
+/

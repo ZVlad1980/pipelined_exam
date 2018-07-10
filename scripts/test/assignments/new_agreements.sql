@@ -11,21 +11,21 @@ select pa.fk_contract,
        pa.pa_amount, 
        m.paydate,
        paa.amount charge_amount,
-       last_day(least(pa.last_pay_date, to_date(20180731, 'yyyymmdd'))) last_pay_date --*/
+       last_day(least(pa.last_pay_date, to_date(20180630, 'yyyymmdd'))) last_pay_date --*/
 from   pension_agreements_v pa, 
        lateral(
-         select pay_gfnpo_pkg.add_month$(trunc(to_date(20180731, 'yyyymmdd')/*pa.effective_date*/, 'MM'), level - 1) paydate
+         select pay_gfnpo_pkg.add_month$(trunc(pa.effective_date, 'MM'), level - 1) paydate
          from   dual
          connect by level <= 
            months_between(
              trunc(
                least(
                  pa.last_pay_date,
-                 to_date(20180730, 'yyyymmdd')
+                 to_date(20180630, 'yyyymmdd')
                ),
                'MM'
              ),
-             to_date(20180701, 'yyyymmdd') --trunc(pa.effective_date, 'MM')
+             trunc(pa.effective_date, 'MM')
            ) + 1
         minus
          select trunc(a.paydate, 'MM') paydate
@@ -57,7 +57,7 @@ and    not exists (
          and    rg.id = rd.fk_registry
          and    rd.fk_contract = pa.fk_base_contract
        )
-and    pa.effective_date <= to_date(20180731, 'yyyymmdd')
+and    pa.effective_date <= to_date(20180630, 'yyyymmdd')
 /*and    pa.fk_contract in (
          select pof.filter_value
          from   pay_order_filters pof
@@ -65,4 +65,4 @@ and    pa.effective_date <= to_date(20180731, 'yyyymmdd')
          and    pof.fk_pay_order = 23159079
        )*/
 --order by paydate
-) t where t.fk_credit is not null
+) t --where t.paydate = to_date(20180601, 'yyyymmdd')
