@@ -14,7 +14,7 @@ select pa.fk_contract,
        last_day(least(pa.last_pay_date, to_date(20180630, 'yyyymmdd'))) last_pay_date --*/
 from   pension_agreements_v pa, 
        lateral(
-         select pay_gfnpo_pkg.add_month$(trunc(pa.effective_date, 'MM'), level - 1) paydate
+         /*select pay_gfnpo_pkg.add_month$(trunc(pa.effective_date, 'MM'), level - 1) paydate
          from   dual
          connect by level <= 
            months_between(
@@ -26,7 +26,9 @@ from   pension_agreements_v pa,
                'MM'
              ),
              trunc(pa.effective_date, 'MM')
-           ) + 1
+           ) + 1*/
+         select to_date(20180601, 'yyyymmdd') paydate
+         from   dual
         minus
          select trunc(a.paydate, 'MM') paydate
          from   assignments a

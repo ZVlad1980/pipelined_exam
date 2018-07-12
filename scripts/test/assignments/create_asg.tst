@@ -8,7 +8,7 @@ begin
   --dbms_session.reset_package; return;
   -- Test statements here
   l_result := pay_gfnpo_pkg.fill_charges_by_pay_order(
-    p_pay_order_id => 23159079,
+    p_pay_order_id => 23236674,
     p_oper_id      => -1
   );
   
