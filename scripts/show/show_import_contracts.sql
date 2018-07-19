@@ -36,6 +36,7 @@ from   (
                  coalesce(pd.data_okon_vypl_next, sysdate),
                  coalesce(inv.pereosv, sysdate)
                )) data_okon_vypl,
+               inv.pereosv,
                pd.razm_pen, 
                pd.data_uvoln, 
                pd.shema_dog, 
@@ -46,15 +47,16 @@ from   (
                count(pd.ssylka) over(partition by pd.ssylka) contract_count
         from   fnd.sp_pen_dog_v pd,
                fnd.sp_invalid_v inv
-        where  1=1
-        and    exists (
+        where  1=1 
+   and pd.ssylka = 4097
+/*        and    exists (
                  select 1
                  from   fnd.vypl_pen vp
                  where  1=1
                  and    vp.data_nachisl between pd.data_nach_vypl and least(coalesce(inv.pereosv, sysdate), coalesce(pd.data_okon_vypl_next, sysdate))--
-                 --and    vp.data_op between to_date(20180601/*19800101*/, 'yyyymmdd') and to_date(20180630, 'yyyymmdd')
+                 --and    vp.data_op between to_date(20180601, 'yyyymmdd') and to_date(20180630, 'yyyymmdd')
                  and    vp.ssylka_fl = pd.ssylka
-               )
+               )--*/
         and    inv.pereosv(+) between pd.data_nach_vypl and coalesce(pd.data_okon_vypl_next, sysdate)--
         and    inv.ssylka_fl(+) = pd.ssylka
        ) pd,
