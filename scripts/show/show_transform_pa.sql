@@ -1,3 +1,4 @@
+--select tpa.ref_kodinsz, count(1) cnt from (
 select tpa.ssylka_fl       ,
        tpa.date_nach_vypl  ,
        tpa.fk_base_contract,
@@ -5,7 +6,25 @@ select tpa.ssylka_fl       ,
        tpa.ref_kodinsz     ,
        tpa.fk_contract     ,
        tpa.source_table    ,
-       --
+       --,
+       case
+         when exists(
+                select 1
+                from   documents d
+                where  d.id = tpa.ref_kodinsz
+              )
+           then 'Y' 
+         else   'N' 
+       end                  doc_exists,
+       case
+         when exists(
+                select 1
+                from   contracts cn
+                where  cn.fk_document = tpa.ref_kodinsz
+              )
+           then 'Y' 
+         else   'N' 
+       end                  cntr_exists,
        pd.cntr_print_date,
        pd.data_arh             cntr_close_date,
        tpa.ref_kodinsz         fk_document,
@@ -45,8 +64,5 @@ and    not exists (
          where  pa.fk_base_contract = tpa.fk_base_contract
          and    pa.effective_date = tpa.date_nach_vypl
        )
+--) tpa group by tpa.ref_kodinsz having count(1) > 1
 /
-select *
-from   transform_pa      tpa,
-       documents         d
-where  d.id = tpa.ref_kodinsz

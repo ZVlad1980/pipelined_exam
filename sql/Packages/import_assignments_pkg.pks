@@ -6,10 +6,29 @@ create or replace package import_assignments_pkg is
   
   /**
    * Процедура импорта пенс.соглашений, по которым были начисления в заданном периоде (мин. квант - месяц)
+   *  Разовый запуск:
+   *    begin
+   *      log_pkg.enable_output;
+   *      import_assignments_pkg.import_pension_agreements(
+   *        p_from_date => to_date(19800101, 'yyyymmdd'),
+   *        p_to_date   => sysdate
+   *      );
+   *    exception
+   *      when others then
+   *        log_pkg.show_errors_all;
+   *        raise;
+   *    end;
+   *
+   *  Просмотр ошибок:
+   *    select * from ERR$_IMP_DOCUMENTS where ORA_ERR_TAG$ = &l_err_tag;
+   *    select * from ERR$_IMP_CONTRACTS where ORA_ERR_TAG$ = &l_err_tag;
+   *    select * from ERR$_IMP_PENSION_AGREEMENTS where ORA_ERR_TAG$ = &l_err_tag;
+   *  l_err_tag - выводится в output
    */
   procedure import_pension_agreements(
     p_from_date date,
-    p_to_date   date
+    p_to_date   date,
+    p_commit    boolean default true
   );
 
 end import_assignments_pkg;

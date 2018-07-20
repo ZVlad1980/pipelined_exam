@@ -26,3 +26,8 @@ end;
 /
 create index err$_assignments_ix on err$_assignments(fk_doc_with_action)
 /
+begin
+  dbms_errlog.create_error_log(dml_table_name => 'DOCUMENTS',          err_log_table_name => 'ERR$_IMP_DOCUMENTS');
+  dbms_errlog.create_error_log(dml_table_name => 'CONTRACTS',          err_log_table_name => 'ERR$_IMP_CONTRACTS');
+  dbms_errlog.create_error_log(dml_table_name => 'PENSION_AGREEMENTS', err_log_table_name => 'ERR$_IMP_PENSION_AGREEMENTS');
+end;
