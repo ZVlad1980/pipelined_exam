@@ -77,3 +77,16 @@ and    kogr.kod_ogr_pv = ogr.kod_ogr_pv
 and    sysdate between ogr.nach_deistv and nvl(ogr.okon_deistv, sysdate)
 and    ogr.kod_ogr_pv < 1000
 */
+select *
+from   sp_lspv lspv
+where  lspv.ssylka_fl in (2,
+11,
+265,
+4608,
+4617,
+18903,
+37335,
+38828,
+297214,
+1159756
+)

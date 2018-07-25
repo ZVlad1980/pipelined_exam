@@ -30,6 +30,34 @@ create or replace package import_assignments_pkg is
     p_to_date   date,
     p_commit    boolean default true
   );
+  
+  /**
+   * Процедура создания ЛСПВ
+   *   Поддерживается многоразовый запуск за один период
+   *
+   *  Разовый запуск:
+   *    begin
+   *      log_pkg.enable_output;
+   *      import_assignments_pkg.create_accounts(
+   *        p_from_date => to_date(19800101, 'yyyymmdd'),
+   *        p_to_date   => sysdate
+   *      );
+   *    exception
+   *      when others then
+   *        log_pkg.show_errors_all;
+   *        raise;
+   *    end;
+   *
+   *  Просмотр не импортированных соглашений:
+   *    select * from transform_pa_accounts tpa where nvl(tpa.fk_account, 0) > 0
+   *  Просмотр ошибок импорта:
+   *  l_err_tag - выводится в output
+   */
+  procedure create_accounts(
+    p_from_date date,
+    p_to_date   date,
+    p_commit    boolean default true
+  );
 
 end import_assignments_pkg;
 /

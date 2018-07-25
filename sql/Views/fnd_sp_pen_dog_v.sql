@@ -79,6 +79,17 @@ create or replace view fnd.sp_pen_dog_v as
              select 187692 , to_date('25.01.2012 11:03:36', 'dd.mm.yyyy hh24:mi:ss') from dual union all
              select 238814 , to_date('25.01.2012 11:03:36', 'dd.mm.yyyy hh24:mi:ss') from dual union all
              select 1033359, to_date('25.01.2012 11:03:36', 'dd.mm.yyyy hh24:mi:ss') from dual union all
+             select 1508,    to_date(20040509173344, 'yyyymmddhh24miss') from dual union all
+             select 1610,    to_date(20040509173344, 'yyyymmddhh24miss') from dual union all
+             select 21957,   to_date(20040509173344, 'yyyymmddhh24miss') from dual union all
+             select 28757,   to_date(20040509173344, 'yyyymmddhh24miss') from dual union all
+             select 30107,   to_date(20040509173344, 'yyyymmddhh24miss') from dual union all
+             select 33849,   to_date(20040509173344, 'yyyymmddhh24miss') from dual union all
+             select 35870,   to_date(20040509173344, 'yyyymmddhh24miss') from dual union all
+             select 98605,   to_date(20140120110331, 'yyyymmddhh24miss') from dual union all
+             select 98658,   to_date(20101227142133, 'yyyymmddhh24miss') from dual union all
+             select 102043,  to_date(20110128105853, 'yyyymmddhh24miss') from dual union all
+             select 311206,  to_date(20110503160028, 'yyyymmddhh24miss') from dual union all
              select 1658415, to_date('25.01.2012 11:03:36', 'dd.mm.yyyy hh24:mi:ss') from dual
            )
   )

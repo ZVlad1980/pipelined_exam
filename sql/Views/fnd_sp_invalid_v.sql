@@ -24,6 +24,13 @@ create or replace view sp_invalid_v as
          to_date(inv.pereosv, 'dd.mm.yyyy') pereosv,
          to_date(inv.data_pens, 'dd.mm.yyyy') data_pens
   from   sp_invalid_arh     inv
+  where  inv.ssylka_fl not in  (
+            311413,
+            218130,
+            786929,
+            188380,
+            491724
+         )
 /
 grant select on sp_invalid_v to gazfond
 /
