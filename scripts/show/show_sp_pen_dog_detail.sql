@@ -1,7 +1,7 @@
 select *
-from   sp_pen_dog_v sp
+from   sp_pen_dog_vypl_v sp
 where  sp.ssylka = &ssylka
-order by sp.data_nach_vypl
+order by sp.nach_vypl_pen
 /
 select *
 from   sp_izm_pd ipd
@@ -16,7 +16,7 @@ select *
 from   vypl_pen vp
 where  vp.ssylka_fl = &ssylka
 order by vp.data_nachisl
-/
+/*
 select *
 from   sp_invalid_v inv
 where  inv.ssylka_fl = &ssylka

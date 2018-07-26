@@ -99,7 +99,7 @@ create or replace view fnd.sp_pen_dog_v as
              select 1658415, to_date('25.01.2012 11:03:36', 'dd.mm.yyyy hh24:mi:ss') from dual
            )
   )
-  select row_number()over(partition by pd.ssylka order by pd.data_nach_vypl) dog_rn,
+  select row_number()over(partition by pd.ssylka order by pd.nach_vypl_pen) dog_rn,
          count(1)over(partition by pd.ssylka) dog_cnt,
          pd.source_table,
          pd.nom_vkl, 

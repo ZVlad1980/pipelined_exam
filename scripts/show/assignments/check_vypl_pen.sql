@@ -35,6 +35,5 @@ from   (
        fnd.sp_lspv      lspv
 where  1 = 1
 and    lspv.ssylka_fl = pd.ssylka
-and    pd.shema_dog in (1, 2, 3, 4, 5, 6, 8)
 and    pd.ssylka = vp.ssylka_fl
 /
