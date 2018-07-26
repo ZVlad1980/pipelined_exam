@@ -278,7 +278,7 @@ create or replace package body pay_gfnpo_pkg is
        m.paydate,
        paa.amount charge_amount,
        last_day(least(pa.last_pay_date, :1)) last_pay_date
-from   pension_agreements_v pa, 
+from   pension_agreements_charge_v pa, 
        lateral(
          select pay_gfnpo_pkg.add_month$(trunc(pa.effective_date, ''MM''), level - 1) paydate
          from   dual
