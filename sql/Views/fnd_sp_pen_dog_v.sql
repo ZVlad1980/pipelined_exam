@@ -7,7 +7,9 @@ create or replace view fnd.sp_pen_dog_v as
            cast(null as date) data_arh,
            pd.data_otkr, 
            pd.ssylka, 
-           pd.data_nach_vypl, 
+           lspv.status_pen,
+           coalesce(lspv.nach_vypl_pen, pd.data_nach_vypl) nach_vypl_pen,
+           pd.data_nach_vypl,
            pd.data_okon_vypl, 
            pd.razm_pen, 
            pd.delta_pen, 
@@ -34,7 +36,9 @@ create or replace view fnd.sp_pen_dog_v as
            pd.summa_perevoda_5_cx,
            pd.data                 cntr_print_date,
            trunc(coalesce(pd.data, pd.data_nach_vypl))  cntr_date
-    from   sp_pen_dog pd
+    from   sp_pen_dog pd,
+           sp_lspv    lspv
+    where  lspv.ssylka_fl(+) = pd.ssylka
     union all
     select 'SP_PEN_DOG_ARH' source_table,
            pda.nom_vkl, 
@@ -43,6 +47,8 @@ create or replace view fnd.sp_pen_dog_v as
            pda.data_arh,
            pda.data_otkr, 
            pda.ssylka, 
+           'A' status_pen,
+           pda.data_nach_vypl nach_vypl_pen,
            pda.data_nach_vypl, 
            pda.data_okon_vypl, 
            pda.razm_pen, 
@@ -93,16 +99,21 @@ create or replace view fnd.sp_pen_dog_v as
              select 1658415, to_date('25.01.2012 11:03:36', 'dd.mm.yyyy hh24:mi:ss') from dual
            )
   )
-  select pd.source_table,
+  select row_number()over(partition by pd.ssylka order by pd.data_nach_vypl) dog_rn,
+         count(1)over(partition by pd.ssylka) dog_cnt,
+         pd.source_table,
          pd.nom_vkl, 
          pd.nom_ips, 
          pd.fio, 
          pd.data_arh,
          pd.data_otkr, 
          pd.ssylka, 
+         pd.status_pen,
+         pd.nach_vypl_pen,
          pd.data_nach_vypl, 
          pd.data_okon_vypl, 
          lead(pd.data_nach_vypl - 1) over(partition by pd.ssylka order by pd.data_nach_vypl) data_okon_vypl_next,
+         lead(pd.nach_vypl_pen - 1) over(partition by pd.ssylka order by pd.nach_vypl_pen) nach_vypl_pen_next,
          pd.razm_pen, 
          pd.delta_pen, 
          pd.delta_pere, 
@@ -129,7 +140,7 @@ create or replace view fnd.sp_pen_dog_v as
          pd.cntr_print_date,
          pd.cntr_date
   from   w_pen_dog pd
-  where  pd.shema_dog <> 7
+  where  pd.shema_dog in (1,2,3,4,5,6,8)
   --and    pd.nom_vkl <> 1001
 /
 grant select on sp_pen_dog_v to gazfond

@@ -1,22 +1,26 @@
 select *
 from   sp_pen_dog_v sp
-where  sp.ssylka in (297214, 182922)
+where  sp.ssylka = &ssylka
 order by sp.data_nach_vypl
 /
 select *
 from   sp_izm_pd ipd
-where  ipd.ssylka_fl = 244
+where  ipd.ssylka_fl = &ssylka
 /
 select *
 from   rztb_istor_obyaz io
-where  io.ssylka = 244
+where  io.ssylka = &ssylka
 and    io.r_zapotm = 0
 /
 select *
 from   vypl_pen vp
-where  vp.ssylka_fl in (297214, 182922)
+where  vp.ssylka_fl = &ssylka
 order by vp.data_nachisl
 /
+select *
+from   sp_invalid_v inv
+where  inv.ssylka_fl = &ssylka
+/*
 select sfl.gf_person, sfl.*
 from   sp_fiz_lits sfl
 where  sfl.ssylka = 297214
@@ -58,3 +62,4 @@ where  vp.ssylka_fl in (
 1159756
 )
 group by vp.ssylka_fl
+*/

@@ -297,6 +297,9 @@ create or replace package body import_assignments_pkg is
     put('create_pension_agreements: l_err_tag = ' || l_err_tag);
     --
     insert_transform_pa(trunc(p_from_date, 'MM'), add_months(trunc(p_to_date, 'MM'), 1) - 1);
+    if p_commit then
+      commit;
+    end if;
     create_pension_agreements(p_err_tag => l_err_tag);
     --create_portfolio(p_err_tag => l_err_tag);
     --
@@ -417,7 +420,7 @@ create or replace package body import_assignments_pkg is
                         lspv.data_zakr
                        else
                         (select pd.data_okon_vypl_next
-                         from   fnd.sp_pen_dog_v pd
+                         from   fnd.sp_pen_dog_vypl_v pd
                          where  pd.ssylka = tac.ssylka_fl
                          and    pd.data_nach_vypl = tac.pa_effective_date)
                      end close_date,
@@ -586,7 +589,7 @@ create or replace package body import_assignments_pkg is
              ) t,
              fnd.sp_lspv lspv
       where  lspv.ssylka_fl = t.ssylka_fl
-    log errors into ERR$_ACCOUNTS (p_err_tag) reject limit unlimited;
+    log errors into ERR$_IMP_ACCOUNTS (p_err_tag) reject limit unlimited;
     
     dbms_output.put_line('Create ' || sql%rowcount || ' accounts.');
     dbms_output.put_line('Complete create accounts: ' || to_char(sysdate, 'dd.mm.yyyy hh24:mi:ss'));
@@ -646,7 +649,13 @@ create or replace package body import_assignments_pkg is
     put('create_accounts: l_err_tag = ' || l_err_tag);
     --
     insert_transform_pa_accounts(trunc(p_from_date, 'MM'), add_months(trunc(p_to_date, 'MM'), 1) - 1);
+    if p_commit then
+      commit;
+    end if;
     create_pa_accounts(p_err_tag => l_err_tag);
+    if p_commit then
+      commit;
+    end if;
     --
     if p_commit then
       commit;
