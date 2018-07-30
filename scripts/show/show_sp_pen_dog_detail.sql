@@ -4,6 +4,12 @@ where  sp.ssylka = &ssylka
 order by sp.nach_vypl_pen
 /
 select *
+from   sp_pen_dog_v sp
+where  sp.ssylka = &ssylka
+order by sp.nach_vypl_pen
+
+/
+select *
 from   sp_izm_pd ipd
 where  ipd.ssylka_fl = &ssylka
 /
@@ -16,6 +22,8 @@ select *
 from   vypl_pen vp
 where  vp.ssylka_fl = &ssylka
 order by vp.data_nachisl
+/
+
 /*
 select *
 from   sp_invalid_v inv

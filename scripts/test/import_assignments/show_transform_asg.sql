@@ -1,4 +1,4 @@
-/*select t.*,
+select t.*,
        (
         select count(1)
         from   pay_orders po
@@ -6,10 +6,15 @@
        ) pay_cnt,
        t.rowid
 from   transform_pa_assignments t
+order by t.date_op desc
 --23464490
-*/
+/
+select *
+from   assignments asg
+where  asg.fk_doc_with_action in (23464490, 23464491, 23464492)
+/*
 with w_sspv as (
-select /*+ materialize*/ a.fk_scheme,
+select /*+ materialize a.fk_scheme,
        a.id fk_account
 from   accounts_sspv_v a
 )
