@@ -835,7 +835,13 @@ create or replace package body import_assignments_pkg is
                select count(1) cnt
                from   fnd.vypl_pen vp2
                where  1 = 1
-               and    (vp2.data_op < vp.data_op or vp2.tip_vypl < vp.tip_vypl) --код типа выплаты значим только при одинаковой дате операции
+               and    (
+                        vp2.data_op < vp.data_op
+                       or 
+                        (vp2.data_op = vp.data_op and vp2.tip_vypl < vp.tip_vypl) 
+                       or 
+                        (vp2.data_op = vp.data_op and vp2.tip_vypl = vp.tip_vypl and vp2.data_nachisl < vp.data_nachisl)
+                      )
                and    trunc(vp2.data_nachisl, 'MM') = trunc(vp.data_nachisl, 'MM')
                and    vp2.ssylka_fl = vp.ssylka
                and    vp2.data_op <= vp.data_op
