@@ -13,7 +13,8 @@ create or replace view vypl_pen_v as
          vp.summa,
          vp.oplach_dni,
          vp.nom_vkl,
-         vp.nom_ips
+         vp.nom_ips,
+         pd.source_table
   from   fnd.vypl_pen vp,
          fnd.sp_pen_dog_vypl_v pd
   where  1=1

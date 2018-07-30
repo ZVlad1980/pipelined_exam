@@ -390,7 +390,13 @@ create or replace package body import_assignments_pkg is
                     select 1
                     from   fnd.vypl_pen vp
                     where  1 = 1
-                    and    vp.data_nachisl between pd.nach_vypl_pen and pd.data_okon_vypl
+                    and    (
+                            pd.dog_cnt = 1
+                           or
+                            (pd.dog_rn = 1 and vp.data_nachisl < pd.nach_vypl_pen)
+                           or
+                            vp.data_nachisl between pd.nach_vypl_pen and pd.data_okon_vypl
+                           )
                     and    vp.ssylka_fl = pd.ssylka
                     and    vp.data_op between p_from_date and p_to_date
                   )
