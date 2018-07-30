@@ -1,9 +1,12 @@
 create or replace view vypl_pen_v as
   select pd.status_pen,
          pd.ssylka,
+         pd.data_nach_vypl,
          pd.nach_vypl_pen,
          pd.data_okon_vypl,
          pd.ref_kodinsz,
+         pd.shema_dog,
+         pd.data_perevoda_5_cx,
          vp.data_op,
          vp.data_nachisl,
          vp.tip_vypl,

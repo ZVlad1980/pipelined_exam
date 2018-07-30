@@ -35,5 +35,3 @@ begin
   dbms_errlog.create_error_log(dml_table_name => 'ASSIGNMENTS',        err_log_table_name => 'ERR$_IMP_ASSIGNMENTS');
 end;
 /
-select *
-from   ERR$_IMP_ASSIGNMENTS

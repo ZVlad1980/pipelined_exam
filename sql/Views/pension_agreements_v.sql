@@ -1,6 +1,7 @@
 create or replace view pension_agreements_v as
   select bcn.fk_document                             fk_base_contract,
          cn.fk_document                              fk_contract,
+         cn.cntr_number                              cntr_number,
          pa.state                                    state,
          pa.isarhv,
          bcn.fk_account                              fk_debit,

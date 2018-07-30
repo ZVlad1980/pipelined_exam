@@ -430,6 +430,8 @@ and    pa.effective_date <= :3' || chr(10) ||
       l_assignment.fk_contragent    := l_agreement.fk_contragent;
       l_assignment.fk_paycode       := case when l_agreement.expiration_date is null then GC_ASGPC_LIFE else GC_ASGPC_TERM end;  -- тип начисляемой пенсии (пожизненная/срочная)
       l_assignment.paydate          := l_agreement.paydate;
+      l_assignment.paydays          := least(last_day(l_agreement.paydate), l_agreement.last_pay_date) - 
+        greatest(trunc(l_assignment.paydate, 'MM'), l_agreement.effective_date) + 1;
       l_assignment.amount           := l_agreement.amount;
       --l_assignment.comments         := 'Начисление пенсии. ОПС Пожизненная выплата.';
       

@@ -40,6 +40,7 @@ create or replace package body import_assignments_pkg is
       p_unit_line => p_line,
       p_user_msg  => p_user_msg
     );
+    put('Error: ' || p_message);
   end fix_exception;
   
   function is_exists_error(
@@ -54,6 +55,28 @@ create or replace package body import_assignments_pkg is
     when no_data_found then
       return false;
   end is_exists_error;
+  
+  
+  function get_sspv_id(
+    p_fk_scheme accounts.fk_scheme%type
+  ) return accounts.id%type 
+    result_cache
+    relies_on(accounts)
+  is
+    l_result accounts.id%type;
+  begin
+    select a.id
+    into   l_result
+    from   accounts_sspv_v a
+    where  a.fk_scheme = p_fk_scheme;
+    return l_result;
+  exception
+    when no_data_found then
+      return null;
+    when others then
+      fix_exception($$PLSQL_LINE, 'get_sspv_id(' || p_fk_scheme || ')');
+      raise;
+  end get_sspv_id;
   
   /**
    * Процедура заполняет таблицу TRANSFORM_PA, данными из FND
@@ -311,6 +334,7 @@ create or replace package body import_assignments_pkg is
     l_err_tag varchar(250);
   begin
     --
+    init_exception;
     l_err_tag := 'ImportPA_' || to_char(sysdate, 'yyyymmddhh24miss');
     put('create_pension_agreements: l_err_tag = ' || l_err_tag);
     --
@@ -353,39 +377,23 @@ create or replace package body import_assignments_pkg is
                   pa.fk_contract,
                   pa.cntr_number,
                   pa.expiration_date,
-                  pd.source_table
-           from   fnd.sp_pen_dog_v      pd,
-                  fnd.sp_invalid_v      inv,
+                  pd.source_table --*/
+           from   fnd.sp_pen_dog_vypl_v pd,
                   transform_contragents tc,
-                  lateral(
-                    select pa.fk_base_contract,
-                           pa.fk_contract,
-                           pa.effective_date,
-                           pa.expiration_date,
-                           pa.state,
-                           pa.isarhv,
-                           cn.cntr_number,
-                           cn.fk_scheme
-                    from   pension_agreements    pa,
-                           contracts             cn
-                    where  1=1
-                    and    cn.fk_account is null
-                    and    cn.fk_document = pa.fk_contract
-                    and    pa.effective_date = pd.data_nach_vypl
-                    and    pa.fk_base_contract = tc.fk_contract
-                  ) pa
-           where  1 = 1
+                  pension_agreements_v  pa
+           where  1=1
+           and    pa.fk_credit is null
+           and    pa.effective_date = pd.data_nach_vypl
+           and    pa.fk_base_contract = tc.fk_contract
            and    tc.ssylka_fl = pd.ssylka
            and    exists (
                     select 1
                     from   fnd.vypl_pen vp
-                    where  1=1
-                    and    vp.data_nachisl between pd.data_nach_vypl and least(coalesce(inv.pereosv, sysdate), coalesce(pd.data_okon_vypl_next, sysdate))--
-                    and    vp.data_op between p_from_date and p_to_date
+                    where  1 = 1
+                    and    vp.data_nachisl between pd.nach_vypl_pen and pd.data_okon_vypl
                     and    vp.ssylka_fl = pd.ssylka
+                    and    vp.data_op between p_from_date and p_to_date
                   )
-           and    inv.pereosv(+) between pd.data_nach_vypl and coalesce(pd.data_okon_vypl_next, sysdate)--
-           and    inv.ssylka_fl(+) = pd.ssylka
           ) u
     on    (acc.account_type = u.account_type and acc.ssylka_fl = u.ssylka and acc.pa_effective_date = u.effective_date)
     when not matched then
@@ -507,6 +515,11 @@ create or replace package body import_assignments_pkg is
         set    tac.fk_account = p_accounts(i).fk_account
         where  tac.fk_contract = p_accounts(i).fk_contract;
       
+      forall i in 1..p_accounts.count
+        update contracts cn
+        set    cn.fk_account = p_accounts(i).fk_account
+        where  cn.fk_document = p_accounts(i).fk_contract;
+      
     exception
       when others then
         fix_exception($$PLSQL_LINE, 'flush_actions_');
@@ -519,7 +532,7 @@ create or replace package body import_assignments_pkg is
     
     loop
       fetch l_accounts_cur
-        bulk collect into l_accounts limit 1000;
+        bulk collect into l_accounts limit 10000;
       for i in 1..l_accounts.count loop
         if l_accounts(i).fk_opened is null then
           l_accounts(i).fk_opened := add_action_(
@@ -614,16 +627,6 @@ create or replace package body import_assignments_pkg is
     
     create_account_actions;
     
-    /*update transform_pa_accounts tac
-    set    tac.fk_account = (
-             select acc.id
-             from   accounts acc
-             where  1=1
-             and    acc.fk_acct_type = GC_ACCTYP_LSPV
-             and    tac.fk_contract = acc.fk_doc_with_acct
-           )
-    where  tac.fk_account is null; --*/
-    
   exception
     when others then
       fix_exception($$PLSQL_LINE, 'create_pa_accounts(' || p_err_tag || ')');
@@ -663,6 +666,7 @@ create or replace package body import_assignments_pkg is
     l_err_tag varchar(250);
   begin
     --
+    init_exception;
     l_err_tag := 'CreateAccounts_' || to_char(sysdate, 'yyyymmddhh24miss');
     put('create_accounts: l_err_tag = ' || l_err_tag);
     --
@@ -773,7 +777,11 @@ create or replace package body import_assignments_pkg is
     p_err_tag   varchar2,
     p_period    date
   ) is
+    l_err_tag varchar2(200);
   begin
+    --put('Импорт начислений отключен!!! Не закончена логика определения даты и типа начисления (для однопериодных)');    return;
+    l_err_tag := p_err_tag || '#' || to_char(p_period, 'yyyymmdd');
+    
     insert into assignments(
       id,
       fk_doc_with_action,
@@ -787,62 +795,69 @@ create or replace package body import_assignments_pkg is
       fk_paycode,
       paydays,
       fk_scheme,
-      asgmt_state
-    ) with w_sspv as (
-        select /*+ materialize*/ a.fk_scheme,
-               a.id fk_account
-        from   accounts_sspv_v a
-      )
-      select assignment_seq.nextval,
-             po.fk_document, --fk_doc_with_action
+      asgmt_state,
+      serv_doc,
+      serv_date,
+      comments
+    ) select assignment_seq.nextval,
+             tas.fk_pay_order,
              pa.fk_contract,
              case 
-               when vp.shema_dog in (1, 6) or (vp.shema_dog = 5 and vp.data_nachisl >= vp.data_perevoda_5_cx) then
-                 sspv.fk_account
+               when pa.fk_scheme in (1, 6) or (pa.fk_scheme = 5 and vp.data_nachisl >= vp.data_perevoda_5_cx) then
+                 import_assignments_pkg.get_sspv_id(pa.fk_scheme)
                else pa.fk_debit
              end fk_debit,
              pa.fk_credit,
-             case 
-               when vp.tip_vypl in (1, 2, 5, 7, 90, 91, 92, 95, 97, 101, 111) then 2
-               else 7
-             end fk_asgmt_type, --CDM.ASSIGNMENT_TYPES
-             tc.fk_contragent,
-             vp.data_nachisl,
+             case
+               when dbl.cnt = 0 then 2 --первичная выплата - всегда начисление пенсии
+               else 7 --вторичные выплаты - доплаты!
+             end   fk_asgmt_type,
+             pa.fk_contragent,
+             trunc(vp.data_nachisl, 'MM') + dbl.cnt,
              vp.summa,
-             GC_PAY_CODE_PENSION, --CDM.PAY_CODES
-             vp.oplach_dni,
+             GC_PAY_CODE_PENSION, --5000 CDM.PAY_CODES
+             coalesce(vp.oplach_dni, 0),
              pa.fk_scheme,
-             1 asgmt_state --ASSIGNMENT_STATES
+             1 asgmt_state, --ASSIGNMENT_STATES
+             pa.fk_contract serv_doc,
+             trunc(vp.data_nachisl, 'MM') + dbl.cnt serv_date,
+             to_char(vp.tip_vypl) || '/' || to_char(vp.data_nachisl, 'yyyymmdd') comments
       from   transform_pa_assignments tas,
-             pay_orders               po,
              fnd.vypl_pen_v           vp,
-             transform_contragents    tc,
              pension_agreements_v     pa,
-             w_sspv                   sspv
+             lateral(
+               select count(1) cnt
+               from   fnd.vypl_pen vp2
+               where  1 = 1
+               and    (vp2.data_op < vp.data_op or vp2.tip_vypl < vp.tip_vypl) --код типа выплаты значим только при одинаковой дате операции
+               and    trunc(vp2.data_nachisl, 'MM') = trunc(vp.data_nachisl, 'MM')
+               and    vp2.ssylka_fl = vp.ssylka
+               and    vp2.data_op <= vp.data_op
+             ) dbl
       where  1=1
-      and    sspv.fk_scheme(+) = vp.shema_dog
-      and    pa.effective_date = vp.data_nach_vypl
-      and    pa.fk_base_contract = tc.fk_contract
-      and    tc.ssylka_fl = vp.ssylka
+      and    pa.fk_contract = vp.ref_kodinsz
       and    vp.data_op = tas.date_op
-      and    po.payment_period = p_period
-      and    po.fk_document = tas.fk_pay_order
+      and    trunc(tas.date_op, 'MM') = p_period --to_date(&p_period, 'yyyymmdd')--p_period
       and    tas.state = 'N'
       and    tas.import_id = p_import_id
-    log errors into ERR$_IMP_ASSIGNMENTS (p_err_tag) reject limit 50;
+    log errors into ERR$_IMP_ASSIGNMENTS (l_err_tag) reject limit 50;
     
-    dbms_output.put_line('За период ' || to_char(p_period, 'dd.mm.yyyy') || ' импортировано ' || sql%rowcount || ' начислений');
+    put('За период ' || to_char(p_period, 'dd.mm.yyyy') || ' импортировано ' || sql%rowcount || ' начислений');
     
-    if is_exists_error('ERR$_IMP_ASSIGNMENTS', p_err_tag) then
+    if is_exists_error('ERR$_IMP_ASSIGNMENTS', l_err_tag) then
       fix_exception($$PLSQL_LINE, 'import_assignments_period (' || to_char(p_period, 'dd.mm.yyyy') || ',' || p_import_id || ',' || p_err_tag || '): ' ||
-        ' есть ошибки вставки, см. ERR$_IMP_ASSIGNMENTS.ORA_ERR_TAG$ = ' || p_err_tag
+        ' есть ошибки импорта, см. ERR$_IMP_ASSIGNMENTS.ORA_ERR_TAG$ = ' || l_err_tag
       );
-      raise program_error;
+      /*
+      TODO: owner="V.Zhuravov" created="27.07.2018"
+      text="raise отключен на период тестирования"
+      */
+      --raise program_error;
     end if;
     
   exception
     when others then
-      fix_exception($$PLSQL_LINE, 'import_assignments_period(' || to_char(p_period, 'dd.mm.yyyy') || ',' || p_import_id || ',' || p_err_tag || ')');
+      fix_exception($$PLSQL_LINE, 'import_assignments_period(' || to_char(p_period, 'dd.mm.yyyy') || ',' || p_import_id || ', ' || p_err_tag || '): ' || l_err_tag);
       raise;
   end import_assignments_period;
   
@@ -870,7 +885,27 @@ create or replace package body import_assignments_pkg is
                where  po.fk_document = tas.fk_pay_order
                and    po.payment_period = p_period
              );
+      commit;
+    exception
+      when others then
+        rollback;
+        fix_exception($$PLSQL_LINE, 'set_state_complete_: Fatal error');
+        raise;
     end set_state_complete_;
+    
+    procedure set_state_complete_at_(
+      p_period date,
+      p_state  varchar2
+    ) is
+      pragma autonomous_transaction;
+    begin
+      set_state_complete_(p_period, p_state);
+      commit;
+    exception
+      when others then
+        rollback;
+        raise;
+    end set_state_complete_at_;
     
   begin
     select po.payment_period
@@ -892,7 +927,8 @@ create or replace package body import_assignments_pkg is
         set_state_complete_(l_periods(i), 'C');
       exception
         when others then
-          set_state_complete_(l_periods(i), 'E');
+          set_state_complete_at_(l_periods(i), 'E');
+          rollback;
           raise program_error;
       end;
     end loop;
@@ -938,17 +974,24 @@ create or replace package body import_assignments_pkg is
   ) is
     l_import_id varchar2(14);
     l_err_tag   varchar(250);
+    l_to_date   date;
   begin
     --
+    
+    init_exception;
     l_import_id := to_char(sysdate, 'yyyymmddhh24miss');
     l_err_tag := 'CreateAccounts_' || l_import_id;
-    put('create_accounts: l_import_id = ' || l_import_id);
-    put('create_accounts: l_err_tag   = ' || l_err_tag);
+    l_to_date := add_months(trunc(p_to_date, 'MM'), 1) - 1;
+    
+    put('Start import assignments: ' || to_char(p_from_date, 'dd.mm.yyyy') || ' - ' || to_char(p_to_date, 'dd.mm.yyyy'));
+    put('  l_import_id = ' || l_import_id);
+    put('  l_err_tag   = ' || l_err_tag);
+    
     
     insert_transform_pa_asg(
       p_import_id => l_import_id, 
       p_from_date => trunc(p_from_date, 'MM'), 
-      p_to_date   => add_months(trunc(p_to_date, 'MM'), 1) - 1
+      p_to_date   => l_to_date
     );
     
     create_pay_orders(p_import_id => l_import_id, p_err_tag => l_err_tag);

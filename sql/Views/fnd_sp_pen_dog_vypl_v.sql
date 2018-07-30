@@ -10,7 +10,7 @@ create or replace view sp_pen_dog_vypl_v as
          pd.data_nach_vypl,
          pd.nach_vypl_pen              pd_nach_vypl_pen, --дата начала начислений!
          trunc(pd.nach_vypl_pen, 'MM') nach_vypl_pen,
-         trunc(least(coalesce(pd.data_okon_vypl, sysdate), coalesce(pd.nach_vypl_pen_next + 1, sysdate)), 'MM') - 1 data_okon_vypl,
+         trunc(least(coalesce(pd.okon_vypl_pen, sysdate), coalesce(pd.nach_vypl_pen_next + 1, sysdate)), 'MM') - 1 data_okon_vypl,
          pd.type_dog,
          pd.shema_dog,
          pd.razm_pen,
@@ -18,11 +18,7 @@ create or replace view sp_pen_dog_vypl_v as
          pd.ref_kodinsz,
          last_day(pd.nach_vypl_pen) -  pd.nach_vypl_pen + 1     first_pay_days,
          round(pd.razm_pen / extract(day from last_day(pd.nach_vypl_pen)) * (last_day(pd.nach_vypl_pen) -  pd.nach_vypl_pen + 1), 2) first_pay_amount
-  from   sp_pen_dog_v pd/*,         sp_invalid_v inv
-  where  1=1
-  and    inv.pereosv(+) between pd.data_nach_vypl and coalesce(pd.nach_vypl_pen_next, inv.pereosv(+))
-  and    inv.ssylka_fl(+) = pd.ssylka
-  */
+  from   sp_pen_dog_v pd
 /
 grant select on sp_pen_dog_vypl_v to gazfond
 /
