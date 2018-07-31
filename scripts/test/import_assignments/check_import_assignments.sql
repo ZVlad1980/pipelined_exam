@@ -17,3 +17,4 @@ and    asg.fk_doc_with_action in (
          where  pas.date_op between to_date(&p_start_year || '0101', 'yyyymmdd') and to_date(&p_end_year || '1231', 'yyyymmdd')
        )
 group by tc.ssylka_fl
+/

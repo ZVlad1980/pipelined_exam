@@ -12,7 +12,7 @@ alter table transform_pa add constraint transform_pa_pk primary key (ssylka_fl, 
 /
 --alter table transform_pa add fk_portfolio
 create table transform_pa_accounts(
-  account_type           varchar2(2), --Cr/Dt
+  account_type           varchar2(2), --Cr/Db
   ssylka_fl              number(10),
   pa_effective_date      date,
   fk_contragent          number(10),
@@ -27,7 +27,7 @@ create table transform_pa_accounts(
 /
 alter table transform_pa_accounts add constraint transform_pa_accounts_pk primary key (account_type, ssylka_fl, pa_effective_date)
 /
-create unique index transform_pa_account_cntr_ux on transform_pa_accounts(fk_contract)
+create unique index transform_pa_account_cntr_ux on transform_pa_accounts(account_type, fk_contract)
 /
 create table transform_pa_assignments(
   date_op      date         not null primary key,

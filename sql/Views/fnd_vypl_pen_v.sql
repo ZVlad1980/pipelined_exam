@@ -21,9 +21,11 @@ create or replace view vypl_pen_v as
   and    (
           pd.dog_cnt = 1
          or
+          (vp.data_nachisl between pd.nach_vypl_pen and pd.data_okon_vypl)
+         or
           (pd.dog_rn = 1 and vp.data_nachisl < pd.nach_vypl_pen)
          or
-          vp.data_nachisl between pd.nach_vypl_pen and pd.data_okon_vypl
+          (pd.dog_cnt = pd.dog_rn and vp.data_nachisl > pd.nach_vypl_pen)
          )
   and    pd.ssylka = vp.ssylka_fl
 /

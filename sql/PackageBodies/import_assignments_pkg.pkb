@@ -2,7 +2,8 @@ create or replace package body import_assignments_pkg is
 
   GC_UNIT_NAME   constant varchar2(32) := $$PLSQL_UNIT;
   
-  GC_ACCTYP_LSPV constant number := 114;
+  GC_ACCTYP_LSPV constant number := 114; --LSPV
+  GC_ACCTYP_IPS  constant number := 23; --IPS
   
   GC_ACT_OPEN_ACC  constant number := 50; --открытие счета
   GC_ACT_CLOSE_ACC constant number := 60; --закрытие счета
@@ -98,19 +99,16 @@ create or replace package body import_assignments_pkg is
                           pd.data_nach_vypl,
                           pd.ref_kodinsz,
                           pd.source_table
-                   from   fnd.sp_pen_dog_v pd,
-                          fnd.sp_invalid_v inv
+                   from   fnd.sp_pen_dog_v pd
                    where  1=1
                    and    exists (
-                            select 1
-                            from   fnd.vypl_pen vp
-                            where  1=1
-                            and    vp.data_nachisl between pd.data_nach_vypl and least(coalesce(inv.pereosv, sysdate), coalesce(pd.data_okon_vypl_next, sysdate))--
-                            and    vp.data_op between p_from_date and p_to_date
-                            and    vp.ssylka_fl = pd.ssylka
+                             select 1
+                             from   fnd.vypl_pen_v vp
+                             where  1 = 1
+                             and    vp.data_nach_vypl = pd.data_nach_vypl
+                             and    vp.ssylka = pd.ssylka
+                             and    vp.data_op between p_from_date and p_to_date
                           )
-                   and    inv.pereosv(+) between pd.data_nach_vypl and coalesce(pd.data_okon_vypl_next, sysdate)--
-                   and    inv.ssylka_fl(+) = pd.ssylka
                   ) pd,
                   lateral(
                     select tc.fk_contract,
@@ -131,6 +129,11 @@ create or replace package body import_assignments_pkg is
                    )
           ) u
     on    (pa.ssylka_fl = u.ssylka and pa.date_nach_vypl = u.data_nach_vypl)
+    when matched then
+      update set
+        fk_base_contract = u.fk_contract,
+        fk_contragent    = u.fk_contragent,
+        fk_contract      = null
     when not matched then
       insert(
         ssylka_fl,
@@ -176,7 +179,7 @@ create or replace package body import_assignments_pkg is
         log errors into ERR$_IMP_CONTRACTS (p_err_tag) reject limit unlimited
       when 1 = 1 then
         into pension_agreements(fk_contract, effective_date, expiration_date, amount, delta_pen, fk_base_contract, period_code, years, state, isarhv)
-        values (ref_kodinsz, date_nach_vypl, data_okon_vypl, razm_pen, delta_pen, fk_base_contract, period_code, years, state, isarhv)
+        values (ref_kodinsz, date_nach_vypl, data_okon_vypl, razm_pen, delta_pen, coalesce(fk_base_contract, -1), period_code, years, state, isarhv)
         log errors into ERR$_IMP_PENSION_AGREEMENTS (p_err_tag) reject limit unlimited
     select t.doc_exists,
            t.cntr_exists,
@@ -275,7 +278,7 @@ create or replace package body import_assignments_pkg is
     where  1=1
     and    exists(
              select 1
-             from   pension_agreements pa
+             from   pension_agreements_v pa
              where  pa.effective_date = tpa.date_nach_vypl
              and    pa.fk_contract = tpa.ref_kodinsz
            )
@@ -294,7 +297,7 @@ create or replace package body import_assignments_pkg is
     p_err_tag varchar2
   ) is
   begin
-    dbms_output.put_line('Создание портфолио и дезижн не реализовано (' || p_err_tag || ')');
+    put('Создание портфолио и дезижн не реализовано (' || p_err_tag || ')');
   exception
     when others then
       fix_exception($$PLSQL_LINE, 'create_pension_agreements');
@@ -332,16 +335,32 @@ create or replace package body import_assignments_pkg is
     p_commit    boolean default true
   ) is
     l_err_tag varchar(250);
+    -- update_transform
+    procedure update_transform_contragents_ is
+      pragma autonomous_transaction;
+    begin
+      update transform_contragents tc
+      set    tc.ssylka_ts = tc.ssylka_fl,
+             tc.ssylka_fl = tc.ssylka_ts --297214
+      where  tc.ssylka_fl = 2013709;
+      commit;
+    exception
+      when others then
+        rollback;
+    end;
+    --
   begin
     --
     init_exception;
     l_err_tag := 'ImportPA_' || to_char(sysdate, 'yyyymmddhh24miss');
     put('create_pension_agreements: l_err_tag = ' || l_err_tag);
+    update_transform_contragents_;
     --
     insert_transform_pa(trunc(p_from_date, 'MM'), add_months(trunc(p_to_date, 'MM'), 1) - 1);
     if p_commit then
       commit;
     end if;
+    
     create_pension_agreements(p_err_tag => l_err_tag);
     --create_portfolio(p_err_tag => l_err_tag);
     --
@@ -366,7 +385,7 @@ create or replace package body import_assignments_pkg is
     p_to_date   date
   ) is
   begin
-    dbms_output.put_line('Start insert transform accounts: ' || to_char(sysdate, 'dd.mm.yyyy hh24:mi:ss'));
+    put('Start insert transform accounts: ' || to_char(sysdate, 'dd.mm.yyyy hh24:mi:ss'));
     merge into transform_pa_accounts acc
     using (select 'Cr' account_type,
                   pd.ssylka,
@@ -388,18 +407,38 @@ create or replace package body import_assignments_pkg is
            and    tc.ssylka_fl = pd.ssylka
            and    exists (
                     select 1
-                    from   fnd.vypl_pen vp
-                    where  1 = 1
-                    and    (
-                            pd.dog_cnt = 1
-                           or
-                            (pd.dog_rn = 1 and vp.data_nachisl < pd.nach_vypl_pen)
-                           or
-                            vp.data_nachisl between pd.nach_vypl_pen and pd.data_okon_vypl
-                           )
-                    and    vp.ssylka_fl = pd.ssylka
+                    from   fnd.vypl_pen_v vp
+                    where  vp.ssylka = pd.ssylka
+                    and    vp.data_nach_vypl = pd.data_nach_vypl
                     and    vp.data_op between p_from_date and p_to_date
                   )
+          union all
+           select 'Db' account_type,
+                  pd.ssylka,
+                  pa.fk_scheme,
+                  pa.effective_date,
+                  tc.fk_contragent,
+                  pa.fk_base_contract,
+                  pa.fk_contract,
+                  pa.cntr_number,
+                  pa.expiration_date,
+                  pd.source_table --*/
+           from   fnd.sp_pen_dog_v      pd,
+                  transform_contragents tc,
+                  pension_agreements_v  pa
+           where  1 = 1
+           and    fk_debit is null
+           and    pa.effective_date = pd.data_nach_vypl
+           and    pa.fk_base_contract = tc.fk_contract
+           and    tc.ssylka_fl = pd.ssylka
+           and    exists (
+                    select 1
+                    from   fnd.vypl_pen_v vp
+                    where  vp.ssylka = pd.ssylka
+                    and    vp.data_nach_vypl = pd.data_nach_vypl
+                    and    vp.data_op between p_from_date and p_to_date
+                  )
+           and    pd.shema_dog in (2, 3, 4, 5)
           ) u
     on    (acc.account_type = u.account_type and acc.ssylka_fl = u.ssylka and acc.pa_effective_date = u.effective_date)
     when not matched then
@@ -428,10 +467,10 @@ create or replace package body import_assignments_pkg is
       )
     ;
     put('insert_transform_pa_accounts: добавлено строк: ' || sql%rowcount);
-    dbms_output.put_line('Complete insert transform accounts: ' || to_char(sysdate, 'dd.mm.yyyy hh24:mi:ss'));
+    put('Complete insert transform accounts: ' || to_char(sysdate, 'dd.mm.yyyy hh24:mi:ss'));
   exception
     when others then
-      fix_exception($$PLSQL_LINE, 'insert_transform_pa_accounts(' || to_char(p_from_date, 'dd.mm.yyyy') || ',' || to_char(p_from_date, 'dd.mm.yyyy') || ')');
+      fix_exception($$PLSQL_LINE, 'insert_transform_pa_accounts(' || to_char(p_from_date, 'dd.mm.yyyy') || ',' || to_char(p_to_date, 'dd.mm.yyyy') || ')');
       raise;
   end insert_transform_pa_accounts;
   
@@ -443,7 +482,8 @@ create or replace package body import_assignments_pkg is
              a.close_date,
              a.fk_opened,
              a.fk_closed,
-             a.fk_contract
+             a.fk_contract,
+             a.fk_contract_pa
       from   (
               select acc.id fk_account,
                      tac.pa_effective_date open_date,
@@ -458,16 +498,43 @@ create or replace package body import_assignments_pkg is
                      end close_date,
                      acc.fk_opened,
                      acc.fk_closed,
-                     tac.fk_contract
+                     tac.fk_contract,
+                     tac.fk_contract fk_contract_pa
               from   transform_pa_accounts tac,
                      accounts              acc,
                      fnd.sp_lspv           lspv
               where  1 = 1
               and    lspv.ssylka_fl = tac.ssylka_fl
-              and    acc.fk_acct_type = 114
-                    --and    (acc.fk_opened is null or acc.fk_closed is null)
+              and    acc.fk_acct_type = GC_ACCTYP_LSPV
               and    acc.fk_doc_with_acct = tac.fk_contract
               and    tac.fk_account is null
+              and    tac.account_type = 'Cr'
+             union all
+              select acc.id fk_account,
+                     tac.pa_effective_date open_date,
+                     case tac.source_table
+                       when 'SP_PEN_DOG' then
+                        ips.data_zakr
+                       else
+                        (select pd.data_okon_vypl
+                         from   fnd.sp_pen_dog_vypl_v pd
+                         where  pd.ssylka = tac.ssylka_fl
+                         and    pd.data_nach_vypl = tac.pa_effective_date)
+                     end close_date,
+                     acc.fk_opened,
+                     acc.fk_closed,
+                     tac.fk_base_contract fk_contract,
+                     tac.fk_contract fk_contract_pa
+              from   transform_pa_accounts tac,
+                     accounts              acc,
+                     fnd.sp_ips            ips
+              where  1 = 1
+              and    ips.tip_lits = 3
+              and    ips.ssylka_fl = tac.ssylka_fl
+              and    acc.fk_acct_type = GC_ACCTYP_IPS
+              and    acc.fk_doc_with_acct = tac.fk_base_contract
+              and    tac.fk_account is null
+              and    tac.account_type = 'Db'
              ) a
       where  (a.fk_opened is null or (a.fk_closed is null and a.close_date  is not null));
     --
@@ -519,7 +586,7 @@ create or replace package body import_assignments_pkg is
       forall i in 1..p_accounts.count
         update transform_pa_accounts tac
         set    tac.fk_account = p_accounts(i).fk_account
-        where  tac.fk_contract = p_accounts(i).fk_contract;
+        where  tac.fk_contract = p_accounts(i).fk_contract_pa;
       
       forall i in 1..p_accounts.count
         update contracts cn
@@ -570,13 +637,13 @@ create or replace package body import_assignments_pkg is
   
   /**
    */
-  procedure create_pa_accounts(
+  procedure create_lspv(
     p_err_tag varchar2
   ) is
     
   begin
     --
-    dbms_output.put_line('Start create accounts: ' || to_char(sysdate, 'dd.mm.yyyy hh24:mi:ss'));
+    put('Start create LSPV: ' || to_char(sysdate, 'dd.mm.yyyy hh24:mi:ss'));
     insert into accounts(
       id,
       acct_number,
@@ -604,7 +671,7 @@ create or replace package body import_assignments_pkg is
                        when not(tac.source_table = 'SP_PEN_DOG_ARH' or acc.exists_account > 0) then
                          tac.ssylka_fl
                      end               acct_number,
-                     tac.ssylka_fl     title,
+                     lpad(to_char(tac.ssylka_fl), 7, '0')     title,
                      tac.fk_scheme     fk_scheme,
                      tac.fk_contract   fk_doc_with_acct
               from   transform_pa_accounts tac,
@@ -628,16 +695,87 @@ create or replace package body import_assignments_pkg is
       where  lspv.ssylka_fl = t.ssylka_fl
     log errors into ERR$_IMP_ACCOUNTS (p_err_tag) reject limit unlimited;
     
-    dbms_output.put_line('Create ' || sql%rowcount || ' accounts.');
-    dbms_output.put_line('Complete create accounts: ' || to_char(sysdate, 'dd.mm.yyyy hh24:mi:ss'));
+    put('Create ' || sql%rowcount || ' LSPV.');
+    put('Complete create LSPV: ' || to_char(sysdate, 'dd.mm.yyyy hh24:mi:ss'));
     
     create_account_actions;
     
   exception
     when others then
-      fix_exception($$PLSQL_LINE, 'create_pa_accounts(' || p_err_tag || ')');
+      fix_exception($$PLSQL_LINE, 'create_lspv(' || p_err_tag || ')');
       raise;
-  end create_pa_accounts;
+  end create_lspv;
+  
+  /**
+   */
+  procedure create_ips(
+    p_err_tag varchar2
+  ) is
+    
+  begin
+    --
+    put('Start create IPS: ' || to_char(sysdate, 'dd.mm.yyyy hh24:mi:ss'));
+    insert into accounts(
+      id,
+      acct_number,
+      title,
+      fk_acct_type,
+      fk_scheme,
+      fk_doc_with_acct,
+      correct_aco,
+      acct_index
+    ) select account_seq.nextval,
+             coalesce(t.acct_number, account_number_seq.nextval) acct_number, ---!!!!!!!!!!!!!!!!!
+             t.title,
+             GC_ACCTYP_IPS fk_acct_type,
+             t.fk_scheme,
+             t.fk_doc_with_acct,
+             case t.source_table
+               when 'SP_PEN_DOG' then 
+                 ips.aktuar_def
+             end  correct_aco,
+             trim(to_char(ips.nom_vkl, '0000')) || '/' || trim(to_char(ips.nom_ips, '0000000'))
+      from   (
+              select tac.ssylka_fl,
+                     tac.source_table,
+                     case
+                       when not(tac.source_table = 'SP_PEN_DOG_ARH' or acc.exists_account > 0) then
+                         tac.ssylka_fl
+                     end               acct_number,
+                     lpad(to_char(tac.ssylka_fl), 7, '0') title,
+                     tac.fk_scheme     fk_scheme,
+                     tac.fk_base_contract   fk_doc_with_acct
+              from   transform_pa_accounts tac,
+                     lateral(
+                       select count(1) exists_account
+                       from   accounts acc
+                       where  acc.acct_number = tac.ssylka_fl
+                       and    acc.fk_acct_type = GC_ACCTYP_IPS
+                     ) acc
+              where  1=1
+              and    not exists (
+                       select 1
+                       from   contracts cn
+                       where  cn.fk_document = tac.fk_base_contract
+                       and    cn.fk_account is not null
+                     )
+              and    tac.account_type = 'Db'
+              and    tac.fk_account is null
+             ) t,
+             fnd.sp_ips ips
+      where  ips.ssylka_fl = t.ssylka_fl
+      and    ips.tip_lits = 3
+    log errors into ERR$_IMP_ACCOUNTS (p_err_tag) reject limit unlimited;
+    
+    put('Create ' || sql%rowcount || ' IPS.');
+    put('Complete create IPS: ' || to_char(sysdate, 'dd.mm.yyyy hh24:mi:ss'));
+    
+    
+  exception
+    when others then
+      fix_exception($$PLSQL_LINE, 'create_ips(' || p_err_tag || ')');
+      raise;
+  end create_ips;
     
   
   
@@ -680,10 +818,10 @@ create or replace package body import_assignments_pkg is
     if p_commit then
       commit;
     end if;
-    create_pa_accounts(p_err_tag => l_err_tag);
-    if p_commit then
-      commit;
-    end if;
+    --
+    create_lspv(p_err_tag => l_err_tag);
+    create_ips(p_err_tag => l_err_tag);
+    create_account_actions;
     --
     if p_commit then
       commit;
