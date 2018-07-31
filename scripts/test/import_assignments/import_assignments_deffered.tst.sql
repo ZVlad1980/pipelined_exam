@@ -1,5 +1,3 @@
-PL/SQL Developer Test script 3.0
-30
 declare
   procedure start_(
     p_from_date date,
@@ -17,9 +15,20 @@ declare
     );
   end start_;
   
-begin
+  function complete_ return boolean is
+    l_cnt int;
+  begin
+    select count(1)
+    into   l_cnt
+    from   transform_pa_assignments t
+    where  t.state = 'N';
+    return l_cnt = 0;
+  end;
   
-  --dbms_session.reset_package; return;
+begin
+  while not complete_ loop
+    dbms_lock.sleep(seconds => 120);
+  end loop;
   log_pkg.enable_output;
   start_(
     p_from_date => to_date(20090101, 'yyyymmdd'),
@@ -30,5 +39,3 @@ exception
     log_pkg.show_errors_all;
     raise;
 end;
-0
-0

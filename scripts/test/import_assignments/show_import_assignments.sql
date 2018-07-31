@@ -33,7 +33,7 @@
                select count(1) cnt
                from   fnd.vypl_pen vp2
                where  1 = 1
-               and    (vp2.data_op < vp.data_op or vp2.tip_vypl < vp.tip_vypl)
+               and    (vp2.data_op < vp.data_op or (vp2.data_op = vp.data_op and vp2.tip_vypl < vp.tip_vypl) or (vp2.data_op = vp.data_op and vp2.tip_vypl = vp.tip_vypl and vp2.data_nachisl < vp.data_nachisl))
                and    trunc(vp2.data_nachisl, 'MM') = trunc(vp.data_nachisl, 'MM')
                and    vp2.ssylka_fl = vp.ssylka
                and    vp2.data_op <= vp.data_op
@@ -43,6 +43,17 @@
       and    vp.data_op = tas.date_op
       and    trunc(tas.date_op, 'MM') between to_date(&p_period, 'yyyymmdd') and to_date(&p_period_to, 'yyyymmdd')--p_period
 --      and    tas.state = 'N'
-    and vp.ssylka = 2396 --2396 --1508
+    and vp.ssylka = 1508 --2396 --1508
 order by paydate
 /
+/*
+01.12.2001  10782 02.11.2001
+01.12.2001  17018 02.11.2001
+01.12.2001  17997 02.11.2001
+01.12.2001  18274 02.11.2001
+01.12.2001  25318 02.11.2001
+01.12.2001  36680 02.11.2001
+01.11.2002  18326 02.10.2002
+01.11.2002  36692 02.10.2002
+
+*/

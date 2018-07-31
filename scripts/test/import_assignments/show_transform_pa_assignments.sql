@@ -4,7 +4,7 @@ select t.*,
          else 'N'
        end is_error
 from   (
-select count(1),
+select count(distinct (trunc(t.date_op, 'MM'))) cnt_months,
        min(date_op) min_date_op,
        max(date_op) max_date_op
 from   transform_pa_assignments t
