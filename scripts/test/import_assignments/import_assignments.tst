@@ -22,7 +22,7 @@ begin
   --dbms_session.reset_package; return;
   log_pkg.enable_output;
   start_(
-    p_from_date => to_date(20090101, 'yyyymmdd'),
+    p_from_date => to_date(20020101, 'yyyymmdd'),
     p_to_date   => to_date(20181201, 'yyyymmdd')
   );
 exception

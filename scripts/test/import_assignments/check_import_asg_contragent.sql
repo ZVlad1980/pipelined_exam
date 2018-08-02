@@ -8,7 +8,7 @@ from   (
                vp.ssylka_fl,
                sum(vp.summa) amount
         from   fnd.vypl_pen vp
-        where  vp.data_op between to_date(&p_start_year || '0101', 'yyyymmdd') and to_date(&p_end_year || '1231', 'yyyymmdd')
+        where  vp.data_op between to_date(&p_start_year || '0101', 'yyyymmdd') and to_date(&p_end_date, 'yyyymmdd')
         and    vp.ssylka_fl = &ssylka
         group by trunc(vp.data_nachisl, 'MM'),
                  vp.ssylka_fl
@@ -23,7 +23,7 @@ from   (
         and    asg.fk_doc_with_action in (
                  select pas.fk_pay_order
                  from   transform_pa_assignments pas
-                 where  pas.date_op between to_date(&p_start_year || '0101', 'yyyymmdd') and to_date(&p_end_year || '1231', 'yyyymmdd')
+                 where  pas.date_op between to_date(&p_start_year || '0101', 'yyyymmdd') and to_date(&p_end_date, 'yyyymmdd')
                )
         group by trunc(asg.paydate, 'MM'),
                asg.fk_contragent
@@ -31,21 +31,21 @@ from   (
        on asg.month = vp.month
 order by nvl(vp.month, asg.month)
 /
-select vp.ssylka,
+select vp.ssylka_fl,
        vp.ref_kodinsz,
        vp.pay_month,
        vp.vp_summa,
        asg.amount
 --select *
 from   ( 
-         select vp.ssylka,
+         select vp.ssylka_fl,
                 vp.ref_kodinsz,
                 trunc(vp.data_nachisl, 'MM') pay_month,
                 sum(vp.summa)                vp_summa
-         from   fnd.vypl_pen_v        vp
-         where  vp.ssylka = 94155
+         from   fnd.vypl_pen_imp_v        vp
+         where  vp.ssylka_fl = &ssylka
 --         and    trunc(vp.data_nachisl, 'MM') = to_date(19961201, 'yyyymmdd')
-         group by vp.ssylka, vp.ref_kodinsz, trunc(vp.data_nachisl, 'MM')
+         group by vp.ssylka_fl, vp.ref_kodinsz, trunc(vp.data_nachisl, 'MM')
        ) vp,
        lateral(
          select sum(asg.amount) amount

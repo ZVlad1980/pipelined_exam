@@ -5,10 +5,13 @@ create table transform_pa(
   fk_contragent          int,
   ref_kodinsz            number,
   fk_contract            number,
-  source_table           varchar2(32)  not null
+  source_table           varchar2(32)  not null,
+  data_arh               date
 )
 /
 alter table transform_pa add constraint transform_pa_pk primary key (ssylka_fl, date_nach_vypl)
+/
+create unique index transform_pa_ux on transform_pa(source_table, ssylka_fl, data_arh)
 /
 --alter table transform_pa add fk_portfolio
 create table transform_pa_accounts(

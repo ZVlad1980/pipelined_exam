@@ -93,40 +93,27 @@ create or replace package body import_assignments_pkg is
                   pd.ssylka, 
                   pd.data_nach_vypl, 
                   pd.ref_kodinsz,
-                  pd.source_table
-           from   (
-                   select pd.ssylka, 
-                          pd.data_nach_vypl,
-                          pd.ref_kodinsz,
-                          pd.source_table
-                   from   fnd.sp_pen_dog_v pd
-                   where  1=1
-                   and    exists (
-                             select 1
-                             from   fnd.vypl_pen_v vp
-                             where  1 = 1
-                             and    vp.data_nach_vypl = pd.data_nach_vypl
-                             and    vp.ssylka = pd.ssylka
-                             and    vp.data_op between p_from_date and p_to_date
-                          )
-                  ) pd,
-                  lateral(
-                    select tc.fk_contract,
-                           tc.fk_contragent
-                    from   transform_contragents tc
-                    where  1=1
-                    and    tc.ssylka_fl = pd.ssylka
-                  ) (+) tc
-           where   1 = 1
-           and     not exists (
+                  pd.source_table,
+                  pd.data_arh
+           from   fnd.sp_pen_dog_imp_v  pd,
+                  transform_contragents tc
+           where  1=1
+           and    not exists (
                      select 1
-                     from   pension_agreements    pa,
-                            contracts             cn
+                     from   pension_agreements_v    pa
                      where  1 = 1
-                     and    cn.fk_document = pa.fk_contract
                      and    pa.effective_date = pd.data_nach_vypl
                      and    pa.fk_base_contract = tc.fk_contract
                    )
+           and    tc.ssylka_fl(+) = pd.ssylka
+           and    exists (
+                     select 1
+                     from   fnd.vypl_pen vp
+                     where  1 = 1
+                     and    vp.data_nachisl between pd.from_date and pd.to_date
+                     and    vp.ssylka_fl = pd.ssylka
+                     and    vp.data_op between p_from_date and p_to_date
+                  )
           ) u
     on    (pa.ssylka_fl = u.ssylka and pa.date_nach_vypl = u.data_nach_vypl)
     when matched then
@@ -141,17 +128,25 @@ create or replace package body import_assignments_pkg is
         fk_base_contract,
         fk_contragent,
         ref_kodinsz,
-        source_table
+        source_table,
+        data_arh
       ) values (
         u.ssylka, 
         u.data_nach_vypl, 
         u.fk_contract,
         u.fk_contragent,
         u.ref_kodinsz,
-        u.source_table
+        u.source_table,
+        u.data_arh
       )
     ;
     put('insert_transform_pa: добавлено строк: ' || sql%rowcount);
+    
+    update transform_pa tpa
+    set    tpa.ref_kodinsz = document_seq.nextval
+    where  tpa.ref_kodinsz is null
+    and    tpa.fk_contract is null;
+    
   exception
     when others then
       fix_exception($$PLSQL_LINE, 'insert_transform_pa(' || to_char(p_from_date, 'dd.mm.yyyy') || ',' || to_char(p_from_date, 'dd.mm.yyyy') || ')');
@@ -284,6 +279,19 @@ create or replace package body import_assignments_pkg is
            )
     and    tpa.fk_contract is null;
     
+    update (select pda.ref_kodinsz,
+                   tpa.fk_contract
+            from   transform_pa       tpa,
+                   fnd.sp_pen_dog_arh pda
+            where  1=1
+            and    pda.ref_kodinsz is null
+            and    pda.data_arh = tpa.data_arh
+            and    pda.ssylka = tpa.ssylka_fl
+            and    tpa.source_table = 'SP_PEN_DOG_ARH'
+            and    tpa.fk_contract is not null
+           ) u
+    set    u.ref_kodinsz = u.fk_contract;
+    
   exception
     when others then
       fix_exception($$PLSQL_LINE, 'create_pension_agreements');
@@ -360,7 +368,6 @@ create or replace package body import_assignments_pkg is
     if p_commit then
       commit;
     end if;
-    
     create_pension_agreements(p_err_tag => l_err_tag);
     --create_portfolio(p_err_tag => l_err_tag);
     --
@@ -396,8 +403,8 @@ create or replace package body import_assignments_pkg is
                   pa.fk_contract,
                   pa.cntr_number,
                   pa.expiration_date,
-                  pd.source_table --*/
-           from   fnd.sp_pen_dog_vypl_v pd,
+                  pd.source_table
+           from   fnd.sp_pen_dog_imp_v pd,
                   transform_contragents tc,
                   pension_agreements_v  pa
            where  1=1
@@ -407,10 +414,11 @@ create or replace package body import_assignments_pkg is
            and    tc.ssylka_fl = pd.ssylka
            and    exists (
                     select 1
-                    from   fnd.vypl_pen_v vp
-                    where  vp.ssylka = pd.ssylka
-                    and    vp.data_nach_vypl = pd.data_nach_vypl
+                    from   fnd.vypl_pen vp
+                    where  1=1
                     and    vp.data_op between p_from_date and p_to_date
+                    and    vp.data_nachisl between pd.from_date and pd.to_date
+                    and    vp.ssylka_fl = pd.ssylka
                   )
           union all
            select 'Db' account_type,
@@ -422,8 +430,8 @@ create or replace package body import_assignments_pkg is
                   pa.fk_contract,
                   pa.cntr_number,
                   pa.expiration_date,
-                  pd.source_table --*/
-           from   fnd.sp_pen_dog_v      pd,
+                  pd.source_table
+           from   fnd.sp_pen_dog_imp_v      pd,
                   transform_contragents tc,
                   pension_agreements_v  pa
            where  1 = 1
@@ -433,10 +441,11 @@ create or replace package body import_assignments_pkg is
            and    tc.ssylka_fl = pd.ssylka
            and    exists (
                     select 1
-                    from   fnd.vypl_pen_v vp
-                    where  vp.ssylka = pd.ssylka
-                    and    vp.data_nach_vypl = pd.data_nach_vypl
+                    from   fnd.vypl_pen vp
+                    where  1=1
                     and    vp.data_op between p_from_date and p_to_date
+                    and    vp.data_nachisl between pd.from_date and pd.to_date
+                    and    vp.ssylka_fl = pd.ssylka
                   )
            and    pd.shema_dog in (2, 3, 4, 5)
           ) u
@@ -483,7 +492,8 @@ create or replace package body import_assignments_pkg is
              a.fk_opened,
              a.fk_closed,
              a.fk_contract,
-             a.fk_contract_pa
+             a.fk_contract_pa,
+             a.account_type
       from   (
               select acc.id fk_account,
                      tac.pa_effective_date open_date,
@@ -492,14 +502,15 @@ create or replace package body import_assignments_pkg is
                         lspv.data_zakr
                        else
                         (select pd.data_okon_vypl
-                         from   fnd.sp_pen_dog_vypl_v pd
+                         from   fnd.sp_pen_dog_imp_v pd
                          where  pd.ssylka = tac.ssylka_fl
                          and    pd.data_nach_vypl = tac.pa_effective_date)
                      end close_date,
                      acc.fk_opened,
                      acc.fk_closed,
                      tac.fk_contract,
-                     tac.fk_contract fk_contract_pa
+                     tac.fk_contract fk_contract_pa,
+                     tac.account_type
               from   transform_pa_accounts tac,
                      accounts              acc,
                      fnd.sp_lspv           lspv
@@ -517,14 +528,15 @@ create or replace package body import_assignments_pkg is
                         ips.data_zakr
                        else
                         (select pd.data_okon_vypl
-                         from   fnd.sp_pen_dog_vypl_v pd
+                         from   fnd.sp_pen_dog_imp_v pd
                          where  pd.ssylka = tac.ssylka_fl
                          and    pd.data_nach_vypl = tac.pa_effective_date)
                      end close_date,
                      acc.fk_opened,
                      acc.fk_closed,
                      tac.fk_base_contract fk_contract,
-                     tac.fk_contract fk_contract_pa
+                     tac.fk_contract fk_contract_pa,
+                     tac.account_type
               from   transform_pa_accounts tac,
                      accounts              acc,
                      fnd.sp_ips            ips
@@ -586,7 +598,8 @@ create or replace package body import_assignments_pkg is
       forall i in 1..p_accounts.count
         update transform_pa_accounts tac
         set    tac.fk_account = p_accounts(i).fk_account
-        where  tac.fk_contract = p_accounts(i).fk_contract_pa;
+        where  tac.fk_contract = p_accounts(i).fk_contract_pa
+        and    tac.account_type = p_accounts(i).account_type;
       
       forall i in 1..p_accounts.count
         update contracts cn
@@ -697,9 +710,7 @@ create or replace package body import_assignments_pkg is
     
     put('Create ' || sql%rowcount || ' LSPV.');
     put('Complete create LSPV: ' || to_char(sysdate, 'dd.mm.yyyy hh24:mi:ss'));
-    
-    create_account_actions;
-    
+        
   exception
     when others then
       fix_exception($$PLSQL_LINE, 'create_lspv(' || p_err_tag || ')');
@@ -847,7 +858,7 @@ create or replace package body import_assignments_pkg is
     
     merge into transform_pa_assignments tas
     using (select trunc(vp.data_op) date_op
-           from   fnd.vypl_pen_v vp
+           from   fnd.vypl_pen_imp_v vp
            where  vp.data_op between p_from_date and p_to_date
            group by vp.data_op
            order by vp.data_op
@@ -967,7 +978,7 @@ create or replace package body import_assignments_pkg is
              trunc(vp.data_nachisl, 'MM') + dbl.cnt serv_date,
              to_char(vp.tip_vypl) || '/' || to_char(vp.data_nachisl, 'yyyymmdd') comments
       from   transform_pa_assignments tas,
-             fnd.vypl_pen_v           vp,
+             fnd.vypl_pen_imp_v           vp,  --NEWVIEW vypl_pen_v
              pension_agreements_v     pa,
              lateral(
                select count(1) cnt
@@ -981,7 +992,7 @@ create or replace package body import_assignments_pkg is
                         (vp2.data_op = vp.data_op and vp2.tip_vypl = vp.tip_vypl and vp2.data_nachisl < vp.data_nachisl)
                       )
                and    trunc(vp2.data_nachisl, 'MM') = trunc(vp.data_nachisl, 'MM')
-               and    vp2.ssylka_fl = vp.ssylka
+               and    vp2.ssylka_fl = vp.ssylka_fl
                and    vp2.data_op <= vp.data_op
              ) dbl
       where  1=1
@@ -1143,7 +1154,8 @@ create or replace package body import_assignments_pkg is
       p_from_date => trunc(p_from_date, 'MM'), 
       p_to_date   => l_to_date
     );
-    
+    commit;
+    --return;
     create_pay_orders(p_import_id => l_import_id, p_err_tag => l_err_tag);
     
     commit;
