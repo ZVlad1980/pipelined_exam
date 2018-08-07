@@ -299,18 +299,379 @@ create or replace package body import_assignments_pkg is
   end create_pension_agreements;
   
   /**
-   * Процедура создает PAY_PORTFOLIOS, PAY_DECISIONS
+   * Процедура заполняет таблицу TRANSFORM_PA, данными из FND
    */
-  procedure create_portfolio(
-    p_err_tag varchar2
-  ) is
+  procedure insert_transform_pa_portfolio is
   begin
-    put('Создание портфолио и дезижн не реализовано (' || p_err_tag || ')');
+    merge into transform_pa_portfolios pap
+    using (select t.ssylka_fl,
+                  t.date_nach_vypl,
+                  t.source_table,
+                  t.pd_creation_date,
+                  t.change_date,
+                  t.kod_izm,
+                  t.kod_doc,
+                  t.nom_izm,
+                  t.true_kod_izm --*/
+           from   (
+                    select tpa.ssylka_fl,
+                           tpa.date_nach_vypl,
+                           tpa.source_table,
+                           trunc(pd.data) pd_creation_date,
+                           trunc(iz.data_zanes) change_date,
+                           iz.kod_izm,
+                           iz.kod_doc,
+                           iz.nom_izm,
+                           case 
+                             when iz.kod_izm in (12, 24, 66, 68, 81, 85, 87, 88, 89, 90, 92, 107, 109, 72, 73) then 'Y'
+                             else 'N'
+                           end true_kod_izm,
+                           row_number() over (partition by tpa.ssylka_fl, tpa.date_nach_vypl
+                             order by case when iz.kod_izm in (12, 24, 66, 68, 81, 85, 87, 88, 89, 90, 92, 107, 109, 72, 73) then 0 --прямой код изменения
+                               else 1000 --обходной код
+                               end + to_number(abs(iz.data_zanes - pd.data)) + (iz.kod_izm / 100)
+                             ) rn
+                    from   transform_pa         tpa,
+                           fnd.sp_pen_dog_imp_v pd,
+                           fnd.izmeneniya_pd_v  iz
+                    where  1=1
+                    and    (
+                             (iz.kod_izm in (12, 24, 66, 68, 81, 85, 87, 88, 89, 90, 92, 107, 109, 72, 73)
+                             )
+                            or
+                             (
+                              exists (
+                                select 1
+                                from   fnd.izmeneniya       iz2
+                                where  iz2.kod_doc = iz.kod_doc
+                                and    iz2.kod_izm in (12, 24, 66, 68, 81, 85, 87, 88, 89, 90, 92, 107, 109, 72, 73)
+                              )
+                             )
+                           )
+                    and    abs(iz.data_zanes - pd.data) < 10
+                    and    iz.ssylka_fl_str = to_char(pd.ssylka)
+                    and    pd.data_nach_vypl = tpa.date_nach_vypl
+                    and    pd.ssylka = tpa.ssylka_fl
+                    and    not exists (
+                             select 1
+                             from   pay_decisions pdd
+                             where  pdd.fk_pension_agreement = tpa.fk_contract                          
+                           )
+                    and    tpa.fk_contract is not null
+                  ) t
+           where t.rn = 1
+          ) u
+    on    (pap.ssylka_fl = u.ssylka_fl and pap.date_nach_vypl = u.date_nach_vypl)
+    when matched then
+      update set
+        fk_pay_portfolio = null,
+        fk_pay_decision  = null
+    when not matched then
+      insert(
+        ssylka_fl,
+        date_nach_vypl,
+        source_table,
+        pd_creation_date,
+        change_date,
+        kod_izm,
+        kod_doc,
+        nom_izm,
+        true_kod_izm
+      ) values (
+        u.ssylka_fl,
+        u.date_nach_vypl,
+        u.source_table,
+        u.pd_creation_date,
+        u.change_date,
+        u.kod_izm,
+        u.kod_doc,
+        u.nom_izm,
+        u.true_kod_izm
+      )
+    ;
+    put('insert_transform_pa_portfolios: добавлено строк: ' || sql%rowcount);
+    
   exception
     when others then
-      fix_exception($$PLSQL_LINE, 'create_pension_agreements');
+      fix_exception($$PLSQL_LINE, 'insert_transform_pa_portfolio');
       raise;
-  end create_portfolio;
+  end insert_transform_pa_portfolio;
+  
+  /**
+   * Процедура создает доп.документы для групповых назначений
+   */
+  procedure create_portfolio_docs(
+    p_err_tag varchar2
+  ) is
+    l_creation_date date;
+  begin
+    l_creation_date := sysdate;
+    update transform_pa_portfolios tpp
+    set    tpp.fk_document = document_seq.nextval
+    where  (tpp.ssylka_fl, tpp.date_nach_vypl) in (
+            select tpp.ssylka_fl,
+                   tpp.date_nach_vypl
+            from   (
+                    select tpp.ssylka_fl,
+                           tpp.date_nach_vypl,
+                           tpp.kod_doc,
+                           row_number()over(partition by tpp.kod_doc order by tpp.ssylka_fl, tpp.date_nach_vypl) rn,
+                           case 
+                             when pp.id is null then 'N'
+                             else 'Y'
+                           end is_exists
+                    from   transform_pa_portfolios tpp,
+                           pay_portfolios          pp
+                    where  1=1
+                    and    pp.fk_doc_application(+) = tpp.kod_doc
+                    and    tpp.fk_document is null
+                   ) tpp
+            where  1=1
+            and    not (tpp.rn = 1 and tpp.is_exists = 'N')
+           );
+    --
+    put('create_portfolio_docs: выделено новых номеров документов: ' || sql%rowcount);
+    --
+    update transform_pa_portfolios tpp
+    set    tpp.fk_document = tpp.kod_doc
+    where  tpp.fk_document is null;
+    --
+    insert into documents(
+      id,
+      fk_doc_type,
+      doc_date,
+      fk_file,
+      title,
+      parent_id,
+      reg_dept_num,
+      reg_act_num,
+      reg_doc_num,
+      barcode,
+      abstract,
+      resolution,
+      fk_printed,
+      fk_signed,
+      fk_deleted,
+      fk_hold,
+      fk_done,
+      fk_treenode,
+      fk_registration_card,
+      fk_doc_out,
+      fk_doc_with_acct,
+      fk_doc_with_cash,
+      fk_doc_linked,
+      in_doc_number,
+      in_doc_date,
+      fk_operator,
+      motiw_id,
+      motiw_doc,
+      creation_date,
+      change_date,
+      isdelete,
+      last_update,
+      priority,
+      is_accounting_doc,
+      fk_scan,
+      fk_npf_origin,
+      fk_email,
+      fk_orig_barcode_scaned
+    ) select tpp.fk_document,
+             d.fk_doc_type,
+             d.doc_date,
+             d.fk_file,
+             d.title,
+             d.parent_id,
+             d.reg_dept_num,
+             d.reg_act_num,
+             d.reg_doc_num,
+             d.barcode,
+             d.abstract,
+             d.resolution,
+             d.fk_printed,
+             d.fk_signed,
+             d.fk_deleted,
+             d.fk_hold,
+             d.fk_done,
+             d.fk_treenode,
+             d.fk_registration_card,
+             d.fk_doc_out,
+             d.fk_doc_with_acct,
+             d.fk_doc_with_cash,
+             d.fk_doc_linked,
+             d.in_doc_number,
+             d.in_doc_date,
+             d.fk_operator,
+             d.motiw_id,
+             d.motiw_doc,
+             d.creation_date,
+             d.change_date,
+             d.isdelete,
+             d.last_update,
+             d.priority,
+             d.is_accounting_doc,
+             d.fk_scan,
+             d.fk_npf_origin,
+             d.fk_email,
+             d.fk_orig_barcode_scaned
+      from   transform_pa_portfolios tpp,
+             documents               d
+      where  1=1
+      and    d.id = tpp.kod_doc
+      and    not exists (select 1 from documents d where d.id = tpp.fk_document)
+      and    tpp.fk_document <> tpp.kod_doc
+      and    tpp.fk_pay_portfolio is null
+    log errors into ERR$_IMP_DOCUMENTS (p_err_tag) reject limit unlimited;
+    
+    put('create_portfolio_docs: created ' || sql%rowcount || ' document(s)');
+    
+  exception
+    when others then
+      fix_exception($$PLSQL_LINE, 'create_portfolio_docs');
+      raise;
+  end create_portfolio_docs;
+  
+  /**
+   * Процедура создает PAY_PORTFOLIOS
+   */
+  procedure create_portfolios(
+    p_err_tag varchar2
+  ) is
+    l_creation_date date;
+  begin
+    l_creation_date := sysdate;
+    insert into pay_portfolios(
+      fk_doc_application,
+      fk_app_type,
+      date_request,
+      fk_pay_detail,
+      creation_date,
+      fk_operator,
+      fk_contract,
+      info_pfr_valid,
+      amount,
+      fk_scheme,
+      fk_pfr_pension_type,
+      date_not_consider,
+      order_paper_required,
+      labor_book_required
+    ) select tpp.fk_document,
+             2,
+             d.doc_date,
+             pa.fk_pay_detail,
+             l_creation_date,
+             53,
+             tpa.fk_base_contract,
+             1,
+             0,
+             pa.fk_scheme,
+             0,
+             null,
+             0,
+             0
+      from   transform_pa_portfolios tpp,
+             transform_pa            tpa,
+             pension_agreements_v    pa,
+             documents               d
+      where  1=1
+      and    d.id = tpp.fk_document
+      and    pa.fk_contract = tpa.fk_contract
+      and    tpa.date_nach_vypl = tpp.date_nach_vypl
+      and    tpa.ssylka_fl = tpp.ssylka_fl
+      and    tpp.true_kod_izm in ('Y', 'N')
+      and    tpp.fk_pay_portfolio is null
+    log errors into ERR$_IMP_PAY_PORTFOLIOS (p_err_tag) reject limit unlimited;
+    
+    put('create_portfolios: inserted ' || sql%rowcount || ' row(s)');
+    
+    update transform_pa_portfolios tpp
+    set    tpp.fk_pay_portfolio = (
+             select pp.id
+             from   transform_pa           tpa,
+                    pay_portfolios         pp
+             where  1=1
+             and    pp.creation_date = l_creation_date
+             and    pp.fk_doc_application = tpp.fk_document
+             and    pp.fk_contract = tpa.fk_base_contract
+             and    tpa.date_nach_vypl = tpp.date_nach_vypl
+             and    tpa.ssylka_fl = tpp.ssylka_fl
+           )
+    where  tpp.fk_pay_portfolio is null
+    and    tpp.true_kod_izm in ('Y', 'N');
+    
+  exception
+    when others then
+      fix_exception($$PLSQL_LINE, 'create_portfolios');
+      raise;
+  end create_portfolios;
+  
+  /**
+   * Процедура создает PAY_DECISIONS
+   */
+  procedure create_pay_decisions(
+    p_err_tag varchar2
+  ) is
+    l_creation_date date;
+  begin
+    l_creation_date := sysdate;
+    insert into pay_decisions(
+      fk_pay_portfolio,
+      fk_decision_type,
+      decision_number,
+      decision_date,
+      amount,
+      pay_start,
+      pay_stop,
+      fk_pension_agreement,
+      creation_date,
+      fk_operator,
+      fk_contract
+    ) select tpp.fk_pay_portfolio,
+             6,
+             -1 * tpp.ssylka_fl,
+             tpp.change_date,
+             pa.pa_amount,
+             pa.effective_date,
+             pa.expiration_date,
+             pa.fk_contract,
+             l_creation_date,
+             53,
+             pa.fk_base_contract
+      from   transform_pa_portfolios tpp,
+             transform_pa            tpa,
+             pension_agreements_v    pa
+      where  1=1
+      and    pa.fk_contract = tpa.fk_contract
+      and    tpa.date_nach_vypl = tpp.date_nach_vypl
+      and    tpa.ssylka_fl = tpp.ssylka_fl
+      and    tpp.true_kod_izm in ('Y', 'N')
+      and    tpp.fk_pay_portfolio is not null
+      and    tpp.fk_pay_decision is null
+    log errors into ERR$_IMP_PAY_DECISIONS (p_err_tag) reject limit unlimited;
+    
+    put('create_pay_decisions: inserted ' || sql%rowcount || ' row(s)');
+    
+    update transform_pa_portfolios tpp
+    set    tpp.fk_pay_decision = (
+             select pd.id
+             from   transform_pa           tpa,
+                    pay_decisions          pd
+             where  1=1
+             and    pd.creation_date = l_creation_date
+             and    pd.fk_pension_agreement = tpa.fk_contract
+             and    pd.fk_pay_portfolio = tpp.fk_pay_portfolio
+             and    tpa.date_nach_vypl = tpp.date_nach_vypl
+             and    tpa.ssylka_fl = tpp.ssylka_fl
+           )
+    where  tpp.fk_pay_portfolio is not null
+    and    tpp.fk_pay_decision is null
+    and    tpp.true_kod_izm in ('Y', 'N');
+    
+  exception
+    when others then
+      fix_exception($$PLSQL_LINE, 'create_pay_decisions');
+      raise;
+  end create_pay_decisions;
+  
   
   /**
    * Процедура импорта пенс.соглашений, по которым были начисления в заданном периоде (мин. квант - месяц)
@@ -369,8 +730,22 @@ create or replace package body import_assignments_pkg is
       commit;
     end if;
     create_pension_agreements(p_err_tag => l_err_tag);
-    --create_portfolio(p_err_tag => l_err_tag);
-    --
+    if p_commit then
+      commit;
+    end if;
+    insert_transform_pa_portfolio;
+    if p_commit then
+      commit;
+    end if;
+    create_portfolio_docs(p_err_tag => l_err_tag);
+    if p_commit then
+      commit;
+    end if;
+    create_portfolios(p_err_tag => l_err_tag);
+    if p_commit then
+      commit;
+    end if;
+    create_pay_decisions(p_err_tag => l_err_tag);
     if p_commit then
       commit;
     end if;
@@ -596,12 +971,6 @@ create or replace package body import_assignments_pkg is
         where  acc.id = p_accounts(i).fk_account;
       
       forall i in 1..p_accounts.count
-        update transform_pa_accounts tac
-        set    tac.fk_account = p_accounts(i).fk_account
-        where  tac.fk_contract = p_accounts(i).fk_contract_pa
-        and    tac.account_type = p_accounts(i).account_type;
-      
-      forall i in 1..p_accounts.count
         update contracts cn
         set    cn.fk_account = p_accounts(i).fk_account
         where  cn.fk_document = p_accounts(i).fk_contract;
@@ -638,6 +1007,14 @@ create or replace package body import_assignments_pkg is
     end loop;
     
     close l_accounts_cur;
+    
+    update transform_pa_accounts tac
+    set    tac.fk_account = (
+             select cn.fk_account
+             from   contracts cn
+             where  cn.fk_document = tac.fk_contract
+           )
+    where  tac.fk_account is null;
     
   exception
     when others then
@@ -825,7 +1202,7 @@ create or replace package body import_assignments_pkg is
     l_err_tag := 'CreateAccounts_' || to_char(sysdate, 'yyyymmddhh24miss');
     put('create_accounts: l_err_tag = ' || l_err_tag);
     --
-    insert_transform_pa_accounts(trunc(p_from_date, 'MM'), add_months(trunc(p_to_date, 'MM'), 1) - 1);
+    --insert_transform_pa_accounts(trunc(p_from_date, 'MM'), add_months(trunc(p_to_date, 'MM'), 1) - 1);
     if p_commit then
       commit;
     end if;

@@ -1,25 +1,39 @@
 select *
-from   sp_pen_dog_vypl_v sp
+from   fnd.sp_pen_dog_vypl_v sp
 where  sp.ssylka = &ssylka
 order by sp.nach_vypl_pen
 /
 select *
-from   sp_pen_dog_v sp
+from   pension_agreements_v  pa,
+       transform_contragents tc
+where  1=1
+and    pa.fk_contragent = tc.fk_contragent
+and    tc.ssylka_fl = &ssylka
+/
+select *
+from   transform_pa tpa
+where  1=1
+and    tpa.ssylka_fl = &ssylka
+/
+
+/*
+select *
+from   fnd.sp_pen_dog_v sp
 where  sp.ssylka = &ssylka
 order by sp.nach_vypl_pen
 
 /
 select *
-from   sp_izm_pd ipd
+from   fnd.sp_izm_pd ipd
 where  ipd.ssylka_fl = &ssylka
 /
 select *
-from   rztb_istor_obyaz io
+from   fnd.rztb_istor_obyaz io
 where  io.ssylka = &ssylka
 and    io.r_zapotm = 0
 /
 select *
-from   vypl_pen vp
+from   fnd.vypl_pen vp
 where  vp.ssylka_fl = &ssylka
 order by vp.data_nachisl
 /

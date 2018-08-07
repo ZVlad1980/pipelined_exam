@@ -41,10 +41,51 @@
       where  1=1
       and    pa.fk_contract = vp.ref_kodinsz
       and    vp.data_op = tas.date_op
-      and    trunc(tas.date_op, 'MM') between to_date(&p_period, 'yyyymmdd') and to_date(&p_period_to, 'yyyymmdd')--p_period
+      and    trunc(tas.date_op, 'MM') between to_date(&p_start_year || '01', 'yyyymmdd') and last_day(to_date(&p_end_year || '01', 'yyyymmdd'))
 --      and    tas.state = 'N'
-    and vp.ssylka = 1508 --2396 --1508
+    and vp.ssylka = &ssylka --2396 --1508
 order by paydate
+/
+select *
+from   fnd.vypl_pen           vp
+where  vp.ssylka_fl = 2895
+and    vp.data_nachisl between to_date(&p_start_year || '01', 'yyyymmdd') and to_date(&p_end_year || '31', 'yyyymmdd')
+/
+select *
+from   fnd.vypl_pen_v           vp
+where  vp.ssylka = 2895
+and    vp.data_nachisl between to_date(&p_start_year || '01', 'yyyymmdd') and to_date(&p_end_year || '31', 'yyyymmdd')
+/
+select pd.status_pen,
+         pd.ssylka,
+         pd.data_nach_vypl,
+         pd.nach_vypl_pen,
+         pd.data_okon_vypl,
+         pd.ref_kodinsz,
+         pd.shema_dog,
+         pd.data_perevoda_5_cx,
+         vp.data_op,
+         vp.data_nachisl,
+         vp.tip_vypl,
+         vp.summa,
+         vp.oplach_dni,
+         vp.nom_vkl,
+         vp.nom_ips
+  from   fnd.vypl_pen vp,
+         fnd.sp_pen_dog_vypl_v pd
+  where  1=1
+  and    (
+          pd.dog_cnt = 1
+         or
+          (pd.dog_rn = 1 and vp.data_nachisl < pd.nach_vypl_pen)
+         or
+          (vp.data_nachisl between pd.nach_vypl_pen and pd.data_okon_vypl)
+         or
+          (pd.dog_rn = pd.dog_cnt and vp.data_nachisl > pd.data_okon_vypl)
+         )
+  and    pd.ssylka = vp.ssylka_fl
+  and    pd.ssylka = 2895
+  and    vp.data_nachisl between to_date(&p_start_year || '01', 'yyyymmdd') and to_date(&p_end_year || '31', 'yyyymmdd');
 /
 /*
 01.12.2001  10782 02.11.2001

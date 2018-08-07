@@ -13,6 +13,23 @@ alter table transform_pa add constraint transform_pa_pk primary key (ssylka_fl, 
 /
 create unique index transform_pa_ux on transform_pa(source_table, ssylka_fl, data_arh)
 /
+create table transform_pa_portfolios(
+  ssylka_fl         number,
+  date_nach_vypl    date,
+  source_table      varchar2(32),
+  pd_creation_date  date,
+  change_date       date,
+  kod_izm           number(10),
+  kod_doc           number(10),
+  nom_izm           number(10),
+  true_kod_izm      varchar2(1),
+  fk_document       number(10),
+  fk_pay_portfolio  number(10),
+  fk_pay_decision   number(10)
+)
+/
+alter table transform_pa_portfolios add constraint transform_pa_portfolios_pk primary key (ssylka_fl, date_nach_vypl)
+/
 --alter table transform_pa add fk_portfolio
 create table transform_pa_accounts(
   account_type           varchar2(2), --Cr/Db

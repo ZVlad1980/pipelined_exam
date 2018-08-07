@@ -36,7 +36,8 @@ create or replace view sp_pen_dog_imp_v as
          pd.razm_pen,
          pd.data_perevoda_5_cx,
          pd.ref_kodinsz,
-         pd.data_arh
+         pd.data_arh,
+         pd.data
   from   sp_pen_dog_v pd
 /
 grant select on sp_pen_dog_imp_v to gazfond

@@ -6,6 +6,7 @@ create or replace view pension_agreements_v as
          pa.isarhv,
          bcn.fk_account                              fk_debit,
          cn.fk_account                               fk_credit,
+         pa.fk_pay_detail,
          cn.fk_company,
          cn.fk_scheme,
          cn.fk_contragent,
@@ -17,7 +18,9 @@ create or replace view pension_agreements_v as
            least(
              coalesce(p.deathdate, sysdate),
              coalesce(pa.expiration_date, sysdate))
-         )                                           last_pay_date
+         )                                           last_pay_date,
+         pa.creation_date,
+         pa.last_update
   from   pension_agreements pa,
          contracts          cn,
          contracts          bcn,

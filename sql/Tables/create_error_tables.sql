@@ -33,5 +33,8 @@ begin
   dbms_errlog.create_error_log(dml_table_name => 'ACCOUNTS',           err_log_table_name => 'ERR$_IMP_ACCOUNTS');
   dbms_errlog.create_error_log(dml_table_name => 'PAY_ORDERS',         err_log_table_name => 'ERR$_IMP_PAY_ORDERS');
   dbms_errlog.create_error_log(dml_table_name => 'ASSIGNMENTS',        err_log_table_name => 'ERR$_IMP_ASSIGNMENTS');
+  dbms_errlog.create_error_log(dml_table_name => 'PAY_PORTFOLIOS',     err_log_table_name => 'ERR$_IMP_PAY_PORTFOLIOS');
+  dbms_errlog.create_error_log(dml_table_name => 'PAY_DECISIONS',      err_log_table_name => 'ERR$_IMP_PAY_DECISIONS');
 end;
 /
+
