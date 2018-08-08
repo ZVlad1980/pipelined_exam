@@ -80,6 +80,24 @@ create or replace package body import_assignments_pkg is
   end get_sspv_id;
   
   /**
+   */
+  
+  procedure gather_table_stats(
+    p_table_name varchar2
+  ) is
+    l_time number;
+  begin
+    l_time := dbms_utility.get_time;
+    put('Start gather stats for ' || p_table_name || ' ... ', false);
+    dbms_stats.gather_table_stats(user, p_table_name);
+    put('Ok, duration: ' || to_char(dbms_utility.get_time - l_time) || ' ms');
+  exception
+    when others then
+      fix_exception($$PLSQL_LINE, 'gather_table_stats(' || p_table_name || ')');
+      init_exception;
+  end gather_table_stats;
+  
+  /**
    * Процедура заполняет таблицу TRANSFORM_PA, данными из FND
    */
   procedure insert_transform_pa(
@@ -750,6 +768,11 @@ create or replace package body import_assignments_pkg is
       commit;
     end if;
     --
+    
+    gather_table_stats('CONTRACTS');
+    gather_table_stats('DOCUMENTS');
+    gather_table_stats('PENSION_AGREEMENTS');
+    
   exception
     when others then
       rollback;
@@ -1215,6 +1238,8 @@ create or replace package body import_assignments_pkg is
       commit;
     end if;
     --
+    gather_table_stats('ACCOUNTS');
+    --
   exception
     when others then
       rollback;
@@ -1541,6 +1566,11 @@ create or replace package body import_assignments_pkg is
     commit;
     
     import_assignments(p_import_id => l_import_id, p_err_tag => l_err_tag);
+    
+    commit;
+    
+    gather_table_stats('ASSIGNMENTS');
+    gather_table_stats('PAY_ORDERS');
     
   exception
     when others then
