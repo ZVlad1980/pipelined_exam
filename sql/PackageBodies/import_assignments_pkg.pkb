@@ -1415,7 +1415,9 @@ create or replace package body import_assignments_pkg is
     ) is
     begin
       update transform_pa_assignments tas
-      set    tas.state = p_state
+      set    tas.state = p_state,
+             tas.creation_date = case when p_state = 'W' then sysdate else tas.creation_date end,
+             tas.last_update_date = sysdate
       where  tas.import_id = p_import_id
       and    exists(
                select 1
@@ -1457,6 +1459,7 @@ create or replace package body import_assignments_pkg is
     
     for i in 1..l_periods.count loop
       begin
+        set_state_complete_(l_periods(i), 'W');
         import_assignments_period(
           p_import_id => p_import_id,
           p_err_tag   => p_err_tag,

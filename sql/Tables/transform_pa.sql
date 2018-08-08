@@ -50,9 +50,10 @@ alter table transform_pa_accounts add constraint transform_pa_accounts_pk primar
 create unique index transform_pa_account_cntr_ux on transform_pa_accounts(account_type, fk_contract)
 /
 create table transform_pa_assignments(
-  date_op      date         not null primary key,
-  fk_pay_order number(10)   not null,
-  import_id    varchar2(14) not null,
-  state        varchar2(1)  default 'N' --New/Complete
-)
+  date_op                date         not null primary key,
+  fk_pay_order           number(10)   not null,
+  import_id              varchar2(14) not null,
+  state                  varchar2(1)  default 'N' --New/Complete
+  creation_date          date default sysdate,
+) last_update_date       date default sysdate
 /
