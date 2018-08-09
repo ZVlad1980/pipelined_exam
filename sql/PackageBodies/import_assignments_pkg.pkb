@@ -1225,7 +1225,7 @@ create or replace package body import_assignments_pkg is
     l_err_tag := 'CreateAccounts_' || to_char(sysdate, 'yyyymmddhh24miss');
     put('create_accounts: l_err_tag = ' || l_err_tag);
     --
-    --insert_transform_pa_accounts(trunc(p_from_date, 'MM'), add_months(trunc(p_to_date, 'MM'), 1) - 1);
+    insert_transform_pa_accounts(trunc(p_from_date, 'MM'), add_months(trunc(p_to_date, 'MM'), 1) - 1);
     if p_commit then
       commit;
     end if;
@@ -1401,9 +1401,9 @@ create or replace package body import_assignments_pkg is
       and    pa.fk_contract = vp.ref_kodinsz
       and    vp.data_op = tas.date_op
       and    trunc(tas.date_op, 'MM') = p_period --to_date(&p_period, 'yyyymmdd')--p_period
-      and    tas.state = 'N'
+      and    tas.state = 'W'
       and    tas.import_id = p_import_id
-    log errors into ERR$_IMP_ASSIGNMENTS (l_err_tag) reject limit 50;
+    log errors into ERR$_IMP_ASSIGNMENTS (l_err_tag) reject limit 0;
     
     put('За период ' || to_char(p_period, 'dd.mm.yyyy') || ' импортировано ' || sql%rowcount || ' начислений');
     
