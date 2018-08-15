@@ -3,11 +3,6 @@ from   transform_pa_assignments t
 group by t.state
 order by t.state
 /
-select t.*, t.rowid
-from   transform_pa_assignments t
-where  t.date_op > to_date(20161101, 'yyyymmdd')--t.state = 'E'
-order by t.date_op
-/
 select t.pay_month, t.creation_date, t.last_update_date,
        lag(t.last_update_date)over(order by t.pay_month) prev_update_date,
        round((t.last_update_date - lag(t.last_update_date)over(order by t.pay_month)) * 24*60, 2) duration_min
@@ -18,3 +13,8 @@ group by trunc(t.date_op, 'MM')
 ) t
 where t.last_update_date is not null
 order by t.pay_month
+/
+select t.*, t.rowid
+from   transform_pa_assignments t
+where  t.date_op > to_date(20161101, 'yyyymmdd')--t.state = 'E'
+order by t.date_op

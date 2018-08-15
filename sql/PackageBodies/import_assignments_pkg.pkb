@@ -62,7 +62,6 @@ create or replace package body import_assignments_pkg is
     p_fk_scheme accounts.fk_scheme%type
   ) return accounts.id%type 
     result_cache
-    relies_on(accounts)
   is
     l_result accounts.id%type;
   begin
@@ -70,7 +69,9 @@ create or replace package body import_assignments_pkg is
     into   l_result
     from   accounts_sspv_v a
     where  a.fk_scheme = p_fk_scheme;
+
     return l_result;
+           
   exception
     when no_data_found then
       return null;
@@ -191,8 +192,8 @@ create or replace package body import_assignments_pkg is
         values(ref_kodinsz, cntr_number, cntr_index,cntr_date, doctitle, C_FK_CONTRACT_TYPE, C_FK_WORKPLACE, fk_contragent, fk_company, fk_scheme, null)
         log errors into ERR$_IMP_CONTRACTS (p_err_tag) reject limit unlimited
       when 1 = 1 then
-        into pension_agreements(fk_contract, effective_date, expiration_date, amount, delta_pen, fk_base_contract, period_code, years, state, isarhv)
-        values (ref_kodinsz, date_nach_vypl, data_okon_vypl, razm_pen, delta_pen, coalesce(fk_base_contract, -1), period_code, years, state, isarhv)
+        into pension_agreements(fk_contract, effective_date, expiration_date, amount, delta_pen, fk_base_contract, period_code, years, state, isarhv, creation_date, last_update)
+        values (ref_kodinsz, date_nach_vypl, data_okon_vypl, razm_pen, delta_pen, coalesce(fk_base_contract, -1), period_code, years, state, isarhv, pd_creation_date, sysdate)
         log errors into ERR$_IMP_PENSION_AGREEMENTS (p_err_tag) reject limit unlimited
     select t.doc_exists,
            t.cntr_exists,
@@ -212,7 +213,8 @@ create or replace package body import_assignments_pkg is
            t.period_code,
            t.years,
            t.state,
-           t.isarhv
+           t.isarhv,
+           t.pd_creation_date
     from   (
     select tpa.ssylka_fl       ,
            tpa.date_nach_vypl  ,
@@ -251,7 +253,7 @@ create or replace package body import_assignments_pkg is
            pd.nom_vkl fk_company,
            pd.shema_dog fk_scheme,
            pd.data_nach_vypl,
-           pd.data_okon_vypl,
+           pd.pd_data_okon_vypl data_okon_vypl,
            pd.razm_pen,
            pd.delta_pen,
            nvl(pd.id_period_payment, 0) period_code,
@@ -266,7 +268,8 @@ create or replace package body import_assignments_pkg is
              when lspv.status_pen = 'о' then 2
              else 0 
            end as                               state,
-           case when pd.source_table = 'SP_PEN_DOG_ARH' then 1 else 0 end isarhv
+           case when pd.source_table = 'SP_PEN_DOG_ARH' then 1 else 0 end isarhv,
+             pd.data pd_creation_date
     from   transform_pa      tpa,
            fnd.sp_pen_dog_v  pd,
            fnd.sp_lspv       lspv
@@ -421,9 +424,7 @@ create or replace package body import_assignments_pkg is
   procedure create_portfolio_docs(
     p_err_tag varchar2
   ) is
-    l_creation_date date;
   begin
-    l_creation_date := sysdate;
     update transform_pa_portfolios tpp
     set    tpp.fk_document = document_seq.nextval
     where  (tpp.ssylka_fl, tpp.date_nach_vypl) in (
@@ -734,7 +735,7 @@ create or replace package body import_assignments_pkg is
     exception
       when others then
         rollback;
-    end;
+    end update_transform_contragents_;
     --
   begin
     --
@@ -747,27 +748,31 @@ create or replace package body import_assignments_pkg is
     if p_commit then
       commit;
     end if;
+    --
     create_pension_agreements(p_err_tag => l_err_tag);
     if p_commit then
       commit;
     end if;
+    
     insert_transform_pa_portfolio;
     if p_commit then
       commit;
     end if;
+    
     create_portfolio_docs(p_err_tag => l_err_tag);
     if p_commit then
       commit;
     end if;
+    
     create_portfolios(p_err_tag => l_err_tag);
     if p_commit then
       commit;
     end if;
+    
     create_pay_decisions(p_err_tag => l_err_tag);
     if p_commit then
       commit;
     end if;
-    --
     
     gather_table_stats('CONTRACTS');
     gather_table_stats('DOCUMENTS');
@@ -780,7 +785,186 @@ create or replace package body import_assignments_pkg is
       raise;
   end import_pension_agreements;
   
+  /**
+   */
+  procedure create_pa_addendums is
+  begin
+    merge into pension_agreement_addendums paa
+    using (select pag.fk_contract fk_pension_agreement,
+                  d.id            fk_base_doc,
+                  coalesce(
+                    pag.fk_debit, 
+                    import_assignments_pkg.get_sspv_id(pag.fk_scheme)
+                  )               fk_provacct,
+                  ipd.nom_izm     serialno,
+                  ipd.summa_izm   amount,
+                  ipd.data_izm    alt_date_begin,
+                  ipd.dat_zanes   creation_date
+           from   fnd.sp_izm_pd ipd
+             join transform_contragents tc
+             on   tc.ssylka_fl = ipd.ssylka_fl
+             join pension_agreements_v pag
+             on   pag.fk_base_contract = tc.fk_contract
+             and  ipd.data_izm between pag.effective_date and coalesce(pag.effective_date_next - 1, ipd.data_izm)
+             join fnd.reer_doc_ngpf rdn
+             on   rdn.ssylka = ipd.ssylka_doc
+             join documents d
+             on   d.id = coalesce(rdn.ref_kodinsz, rdn.kod_sr, rdn.kod_insz)
+          ) u
+    on    (paa.fk_pension_agreement = u.fk_pension_agreement and paa.serialno = u.serialno)
+    when not matched then
+      insert (
+        id,
+        fk_pension_agreement,
+        fk_base_doc,
+        fk_provacct,
+        serialno,
+        amount,
+        alt_date_begin,
+        creation_date
+      ) values (
+        pension_agreement_addendum_seq.nextval,
+        u.fk_pension_agreement,
+        u.fk_base_doc,
+        u.fk_provacct,
+        u.serialno,
+        u.amount,
+        u.alt_date_begin,
+        u.creation_date
+      )
+    ;
+  exception
+    when others then
+      fix_exception($$PLSQL_LINE, 'create_pa_addendums');
+      raise;
+  end create_pa_addendums;
   
+  /**
+   */
+  procedure canceled_pa_addendums is
+  begin
+    update (
+      select paa.id, paa.canceled, paa.canceled_new
+      from (
+              select paa.id,
+                     paa.fk_pension_agreement,
+                     paa.serialno,
+                     paa.canceled,
+                     coalesce(
+                       (select min(paa2.serialno)
+                        from   pension_agreement_addendums paa2
+                        where  1=1
+                        and    paa2.serialno > paa.serialno
+                        and    paa2.alt_date_begin <= paa.alt_date_begin
+                        and    paa2.fk_pension_agreement = paa.fk_pension_agreement
+                       ),
+                       0
+                     ) canceled_new,
+                     paa.amount,
+                     paa.alt_date_begin,
+                     paa.alt_date_end,
+                     paa.creation_date
+              from   pension_agreement_addendums paa
+              where  paa.fk_pension_agreement in (
+                       select pa.fk_contract
+                       from   pension_agreements_v pa
+                     )
+           ) paa
+      where paa.canceled <> paa.canceled_new
+    ) paa
+    set paa.canceled = paa.canceled_new;
+    
+    put('canceled_pa_addendums: признак отмены обновлен в ' || sql%rowcount || ' строках');
+
+  exception
+    when others then
+      fix_exception($$PLSQL_LINE, 'canceled_pa_addendums');
+      raise;
+  end canceled_pa_addendums;
+  
+  /**
+   * Процедура создает записи pension_agreements_addendums с cerilno = 0 - начальные значения пенсии
+   */
+  procedure create_init_addendums is
+  begin
+    
+    merge into pension_agreement_addendums paa
+    using (select pa.fk_contract,
+                  pa.effective_date,
+                  pa.fk_debit,
+                  pa.pa_amount,
+                  pa.creation_date
+           from   pension_agreements_v pa
+          ) u
+    on    (paa.fk_pension_agreement = u.fk_contract and paa.serialno = 0)
+    when not matched then
+      insert(
+        id,
+        fk_pension_agreement,
+        fk_base_doc,
+        fk_provacct,
+        serialno,
+        canceled,
+        amount,
+        alt_date_begin,
+        creation_date
+      ) values (
+        pension_agreement_addendum_seq.nextval,
+        u.fk_contract,
+        u.fk_contract,
+        u.fk_debit,
+        0,
+        0,
+        u.pa_amount,
+        u.effective_date,
+        u.creation_date --более ставить нечего при импорте...
+      )
+    ;
+    put('create_init_addendums: добавлено ' || sql%rowcount || ' начальных значений');
+  exception
+    when others then
+      fix_exception($$PLSQL_LINE, 'create_init_addendums');
+      raise;
+  end create_init_addendums;
+
+  /**
+  * Процедура импорта изменений к пенс.соглашениям
+  *  Разовый запуск:
+  *    begin
+  *      log_pkg.enable_output;
+  *      import_assignments_pkg.import_pa_addendums;
+  *    exception
+  *      when others then
+  *        log_pkg.show_errors_all;
+  *        raise;
+  *    end;
+  *
+  *  l_err_tag - выводится в output
+  */
+  procedure import_pa_addendums(
+    p_commit    boolean default true
+  ) is
+  begin
+    --
+    init_exception;
+    --
+    create_pa_addendums;
+    create_init_addendums;
+    canceled_pa_addendums;
+    --
+    if p_commit then
+      commit;
+    end if;
+    --
+    
+    gather_table_stats('PENSION_AGREEMENT_ADDENDUMS');
+    
+  exception
+    when others then
+      rollback;
+      fix_exception($$PLSQL_LINE, 'import_pa_addendums');
+      raise;
+  end import_pa_addendums;
   
   /**
    * Процедура заполняет таблицу TRANSFORM_PA_ACCOUNTS, данными из FND

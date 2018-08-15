@@ -10,5 +10,5 @@ references assignments(id)
 /
 delete from pay_orders
 /
-commit
+truncate table pension_agreement_addendums
 /

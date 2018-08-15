@@ -1,7 +1,7 @@
-select vp.ssylka, sum(vp.summa) amount
-from   fnd.vypl_pen_v vp
+select vp.ssylka_fl, sum(vp.summa) amount
+from   fnd.vypl_pen_imp_v vp
 where  vp.data_op between to_date(&p_start_year || '0101', 'yyyymmdd') and to_date(&p_end_date, 'yyyymmdd')
-group by vp.ssylka
+group by vp.ssylka_fl
 minus
 select tc.ssylka_fl,
        sum(asg.amount) amount

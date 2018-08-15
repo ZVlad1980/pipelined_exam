@@ -9,6 +9,7 @@ create or replace view vypl_pen_imp_v as
          pd.data_nach_vypl,
          pd.data_okon_vypl,
          pd.lspv_nach_vypl_pen,
+         pd.pd_data_okon_vypl,
          pd.ref_kodinsz,
          pd.shema_dog,
          pd.data_perevoda_5_cx,

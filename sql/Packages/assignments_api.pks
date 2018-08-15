@@ -4,7 +4,9 @@ create or replace package assignments_api is
   -- Created : 30.06.2018 15:22:08
   -- Purpose : 
   
-  procedure init;
+  procedure init(
+    p_err_tag varchar2 default null
+  );
   
   procedure flush;
   

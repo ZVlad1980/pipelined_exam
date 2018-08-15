@@ -17,7 +17,8 @@ create or replace package pay_gfnpo_pkg is
    */
   function fill_charges_by_pay_order(
     p_pay_order_id number,
-    p_oper_id      number
+    p_oper_id      number,
+    p_parallel     number default 4
   ) return number;
 
 end pay_gfnpo_pkg;

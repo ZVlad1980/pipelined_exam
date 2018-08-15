@@ -17,7 +17,7 @@ begin
     p_pay_order_id => 23513113,
     p_oper_id      => -1
   );
-  dbms_output.put_line('Duration: ' || to_char(dbms_utility.get_time - l_time) || ' ms');
+  dbms_output.put_line('Duration: ' || to_char((dbms_utility.get_time - l_time) / 100) || ' sec');
   if l_result <> 0 then
     raise program_error;
   end if;

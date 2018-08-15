@@ -120,6 +120,7 @@ create or replace view fnd.sp_pen_dog_v as
          pd.data_nach_vypl,
          lead(pd.data_nach_vypl - 1) over(partition by pd.ssylka order by pd.data_nach_vypl) data_okon_vypl,
          pd.nach_vypl_pen lspv_nach_vypl_pen,
+         pd.data_okon_vypl pd_data_okon_vypl,
          /*
          pd.nach_vypl_pen,
          pd.okon_vypl_pen,
