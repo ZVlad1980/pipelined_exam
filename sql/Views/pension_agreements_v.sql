@@ -20,8 +20,7 @@ create or replace view pension_agreements_v as
              coalesce(pa.expiration_date, sysdate))
          )                                           last_pay_date,
          pa.creation_date,
-         pa.last_update,
-         lead(pa.effective_date)over(partition by pa.fk_base_contract order by pa.effective_date) effective_date_next
+         pa.last_update
   from   pension_agreements pa,
          contracts          cn,
          contracts          bcn,

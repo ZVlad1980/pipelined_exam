@@ -1,3 +1,9 @@
+Update fnd.reer_doc_ngpf 
+set 
+    KOD_INSZ=22868932,
+    REF_KODINSZ=22868932
+where SSYLKA=457572;
+/
 update transform_contragents tc
 set    tc.ssylka_fl = 297214
 where  tc.fk_contract = 1695647

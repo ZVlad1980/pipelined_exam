@@ -88,6 +88,8 @@ create or replace package body import_assignments_pkg is
   ) is
     l_time number;
   begin
+put('gather_table_stats(' || p_table_name || '): сбор статистики отключен!');
+    return;
     l_time := dbms_utility.get_time;
     put('Start gather stats for ' || p_table_name || ' ... ', false);
     dbms_stats.gather_table_stats(user, p_table_name);
@@ -731,11 +733,25 @@ create or replace package body import_assignments_pkg is
       set    tc.ssylka_ts = tc.ssylka_fl,
              tc.ssylka_fl = tc.ssylka_ts --297214
       where  tc.ssylka_fl = 2013709;
+      
+      update pension_agreements pa
+      set    pa.effective_date = to_date('17.05.2017', 'dd.mm.yyyy')
+      where  pa.fk_contract = 12128925
+      and    pa.effective_date <> to_date('17.05.2017', 'dd.mm.yyyy');
+      
       commit;
-    exception
-      when others then
-        rollback;
     end update_transform_contragents_;
+    
+    procedure update_pd_arh_ is
+    begin
+      update fnd.sp_pen_dog_arh pda
+      set    pda.shema_dog = coalesce(
+               (select pd.shema_dog from fnd.sp_pen_dog pd where pd.ssylka = pda.ssylka),
+               (select tc.fk_scheme from gazfond.transform_contragents tc where tc.ssylka_fl = pda.ssylka)
+             )
+      where  pda.shema_dog is null;
+      commit;
+    end update_pd_arh_;
     --
   begin
     --
@@ -743,6 +759,7 @@ create or replace package body import_assignments_pkg is
     l_err_tag := 'ImportPA_' || to_char(sysdate, 'yyyymmddhh24miss');
     put('create_pension_agreements: l_err_tag = ' || l_err_tag);
     update_transform_contragents_;
+    update_pd_arh_;
     --
     insert_transform_pa(trunc(p_from_date, 'MM'), add_months(trunc(p_to_date, 'MM'), 1) - 1);
     if p_commit then
@@ -777,7 +794,7 @@ create or replace package body import_assignments_pkg is
     gather_table_stats('CONTRACTS');
     gather_table_stats('DOCUMENTS');
     gather_table_stats('PENSION_AGREEMENTS');
-    
+
   exception
     when others then
       rollback;
@@ -787,29 +804,37 @@ create or replace package body import_assignments_pkg is
   
   /**
    */
-  procedure create_pa_addendums is
+  procedure create_pa_addendums(
+    p_err_tag varchar2
+  ) is
   begin
     merge into pension_agreement_addendums paa
     using (select pag.fk_contract fk_pension_agreement,
-                  d.id            fk_base_doc,
+                  coalesce(
+                    rdn.ref_kodinsz ,
+                    rdn.kod_sr      ,
+                    rdn.kod_insz
+                  )               fk_base_doc,
                   coalesce(
                     pag.fk_debit, 
                     import_assignments_pkg.get_sspv_id(pag.fk_scheme)
                   )               fk_provacct,
                   ipd.nom_izm     serialno,
                   ipd.summa_izm   amount,
-                  ipd.data_izm    alt_date_begin,
+                  greatest(ipd.data_izm, pag.effective_date) alt_date_begin,
                   ipd.dat_zanes   creation_date
            from   fnd.sp_izm_pd ipd
              join transform_contragents tc
              on   tc.ssylka_fl = ipd.ssylka_fl
-             join pension_agreements_v pag
+             join pension_agreements_imp_v pag
              on   pag.fk_base_contract = tc.fk_contract
-             and  ipd.data_izm between pag.effective_date and coalesce(pag.effective_date_next - 1, ipd.data_izm)
-             join fnd.reer_doc_ngpf rdn
+             and  ipd.data_izm between 
+                    case when pag.rn = 1 then to_date(19000101, 'yyyymmdd') else pag.effective_date end 
+                    and 
+                    case when pag.rn = cnt then to_date(21000101, 'yyyymmdd') else coalesce(pag.effective_date_next - 1, ipd.data_izm) end
+             left join fnd.reer_doc_ngpf rdn
              on   rdn.ssylka = ipd.ssylka_doc
-             join documents d
-             on   d.id = coalesce(rdn.ref_kodinsz, rdn.kod_sr, rdn.kod_insz)
+           where ipd.nom_izm > 0
           ) u
     on    (paa.fk_pension_agreement = u.fk_pension_agreement and paa.serialno = u.serialno)
     when not matched then
@@ -832,7 +857,8 @@ create or replace package body import_assignments_pkg is
         u.alt_date_begin,
         u.creation_date
       )
-    ;
+    log errors into ERR$_PENSION_AGREEMENT_ADDEND (p_err_tag) reject limit unlimited;
+    
   exception
     when others then
       fix_exception($$PLSQL_LINE, 'create_pa_addendums');
@@ -885,7 +911,9 @@ create or replace package body import_assignments_pkg is
   /**
    * Процедура создает записи pension_agreements_addendums с cerilno = 0 - начальные значения пенсии
    */
-  procedure create_init_addendums is
+  procedure create_init_addendums(
+    p_err_tag varchar2
+  ) is
   begin
     
     merge into pension_agreement_addendums paa
@@ -919,7 +947,8 @@ create or replace package body import_assignments_pkg is
         u.effective_date,
         u.creation_date --более ставить нечего при импорте...
       )
-    ;
+    log errors into ERR$_PENSION_AGREEMENT_ADDEND (p_err_tag) reject limit unlimited;
+    
     put('create_init_addendums: добавлено ' || sql%rowcount || ' начальных значений');
   exception
     when others then
@@ -944,12 +973,16 @@ create or replace package body import_assignments_pkg is
   procedure import_pa_addendums(
     p_commit    boolean default true
   ) is
+    l_err_tag varchar(250);
+    
   begin
     --
     init_exception;
+    l_err_tag := 'ImportPA_' || to_char(sysdate, 'yyyymmddhh24miss');
+    put('import_pa_addendums: l_err_tag = ' || l_err_tag);
     --
-    create_pa_addendums;
-    create_init_addendums;
+    create_pa_addendums(l_err_tag);
+    create_init_addendums(l_err_tag);
     canceled_pa_addendums;
     --
     if p_commit then
@@ -1442,8 +1475,8 @@ create or replace package body import_assignments_pkg is
   ) is
   begin
     
-    merge into transform_pa_assignments tas
-    using (select trunc(vp.data_op) date_op
+    merge /*+ parallel(4) */ into transform_pa_assignments tas
+    using (select  trunc(vp.data_op) date_op
            from   fnd.vypl_pen_imp_v vp
            where  vp.data_op between p_from_date and p_to_date
            group by vp.data_op
@@ -1523,7 +1556,7 @@ create or replace package body import_assignments_pkg is
     --put('Импорт начислений отключен!!! Не закончена логика определения даты и типа начисления (для однопериодных)');    return;
     l_err_tag := p_err_tag || '#' || to_char(p_period, 'yyyymmdd');
     
-    insert into assignments(
+    insert /*+ parallel(assignments, 4) */ into assignments(
       id,
       fk_doc_with_action,
       fk_doc_with_acct,
@@ -1540,7 +1573,7 @@ create or replace package body import_assignments_pkg is
       serv_doc,
       serv_date,
       comments
-    ) select assignment_seq.nextval,
+    ) select /*+ parallel (4) */ assignment_seq.nextval,
              tas.fk_pay_order,
              pa.fk_contract,
              case 

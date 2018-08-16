@@ -1,7 +1,7 @@
 create or replace view fnd.sp_pen_dog_v as
   with w_pen_dog_excl as (
     select /*+ materialize*/t.ssylka_fl, t.data_arh
-    from   (select 1508 ssylka_fl,    to_date(20040509173344, 'yyyymmddhh24miss') data_arh from dual union all
+    from   (select 1508    ssylka_fl,    to_date(20040509173344, 'yyyymmddhh24miss') data_arh from dual union all
             select 1610,    to_date(20040509173344, 'yyyymmddhh24miss') from dual union all
             select 4097,    to_date(20060718171506, 'yyyymmddhh24miss') from dual union all
             select 21957,    to_date(20040509173344, 'yyyymmddhh24miss') from dual union all

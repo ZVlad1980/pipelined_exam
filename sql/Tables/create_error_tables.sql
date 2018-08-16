@@ -1,15 +1,31 @@
 declare
   l_list_tbl sys.odcivarchar2list := 
     sys.odcivarchar2list(
-      'assignments'
+      'ASSIGNMENTS                    ',
+      'DOCUMENTS                      ERR$_IMP_DOCUMENTS',
+      'CONTRACTS                      ERR$_IMP_CONTRACTS',
+      'PENSION_AGREEMENTS             ERR$_IMP_PENSION_AGREEMENTS',
+      'ACCOUNTS                       ERR$_IMP_ACCOUNTS',
+      'PAY_ORDERS                     ERR$_IMP_PAY_ORDERS',
+      'ASSIGNMENTS                    ERR$_IMP_ASSIGNMENTS',
+      'PAY_PORTFOLIOS                 ERR$_IMP_PAY_PORTFOLIOS',
+      'PAY_DECISIONS                  ERR$_IMP_PAY_DECISIONS',
+      'PENSION_AGREEMENT_ADDENDUMS    ERR$_PENSION_AGREEMENT_ADDEND'
     );
 
-  procedure create_err_table(p_table_name varchar2) is
+  procedure create_err_table(
+    p_table_name   varchar2,
+    p_err_tbl_name varchar2 default null
+  ) is
     e_exists_tbl exception;
     pragma exception_init(e_exists_tbl, -955);
   begin
-    dbms_output.put('Create error table for ' || p_table_name || ' ... ');
-    DBMS_ERRLOG.CREATE_ERROR_LOG(dml_table_name => p_table_name); --'');
+    --execute immediate 'drop table ' || nvl(p_err_tbl_name, 'ERR$_' || p_table_name);
+    dbms_output.put('Create ' || p_err_tbl_name || ' error table for ' || p_table_name || ' ... ');
+    DBMS_ERRLOG.CREATE_ERROR_LOG(
+      dml_table_name => p_table_name,
+      err_log_table_name =>  p_err_tbl_name
+    ); --'');
     dbms_output.put_line('Ok');
   exception
     when e_exists_tbl then
@@ -20,22 +36,12 @@ declare
   
 begin
   for i in 1..l_list_tbl.count loop
-    create_err_table(p_table_name => l_list_tbl(i));
+    create_err_table(
+      p_table_name   => regexp_substr(l_list_tbl(i), '[^ ]+', 1, 1),
+      p_err_tbl_name => regexp_substr(l_list_tbl(i), '[^ ]+', 1, 2)
+    );
   end loop;
 end;
 /
 create index err$_assignments_ix on err$_assignments(fk_doc_with_action)
 /
-begin
-  dbms_errlog.create_error_log(dml_table_name => 'DOCUMENTS',          err_log_table_name => 'ERR$_IMP_DOCUMENTS');
-  dbms_errlog.create_error_log(dml_table_name => 'CONTRACTS',          err_log_table_name => 'ERR$_IMP_CONTRACTS');
-  dbms_errlog.create_error_log(dml_table_name => 'PENSION_AGREEMENTS', err_log_table_name => 'ERR$_IMP_PENSION_AGREEMENTS');
-  dbms_errlog.create_error_log(dml_table_name => 'ACCOUNTS',           err_log_table_name => 'ERR$_IMP_ACCOUNTS');
-  dbms_errlog.create_error_log(dml_table_name => 'PAY_ORDERS',         err_log_table_name => 'ERR$_IMP_PAY_ORDERS');
-  dbms_errlog.create_error_log(dml_table_name => 'ASSIGNMENTS',        err_log_table_name => 'ERR$_IMP_ASSIGNMENTS');
-  dbms_errlog.create_error_log(dml_table_name => 'PAY_PORTFOLIOS',     err_log_table_name => 'ERR$_IMP_PAY_PORTFOLIOS');
-  dbms_errlog.create_error_log(dml_table_name => 'PAY_DECISIONS',      err_log_table_name => 'ERR$_IMP_PAY_DECISIONS');
-  dbms_errlog.create_error_log(dml_table_name => 'PENSION_AGREEMENT_ADDENDUMS', err_log_table_name => 'ERR$_PENSION_AGREEMENT_ADDEND');
-end;
-/
-
