@@ -823,7 +823,7 @@ put('gather_table_stats(' || p_table_name || '): сбор статистики отключен!');
                   ipd.summa_izm   amount,
                   greatest(ipd.data_izm, pag.effective_date) alt_date_begin,
                   ipd.dat_zanes   creation_date
-           from   fnd.sp_izm_pd ipd
+           from   fnd.sp_izm_pd_v ipd
              join transform_contragents tc
              on   tc.ssylka_fl = ipd.ssylka_fl
              join pension_agreements_imp_v pag
@@ -864,6 +864,55 @@ put('gather_table_stats(' || p_table_name || '): сбор статистики отключен!');
       fix_exception($$PLSQL_LINE, 'create_pa_addendums');
       raise;
   end create_pa_addendums;
+  
+  /**
+   * Процедура создает записи pension_agreements_addendums с cerilno = 0 - начальные значения пенсии
+   */
+  procedure create_init_addendums(
+    p_err_tag varchar2
+  ) is
+  begin
+    
+    merge into pension_agreement_addendums paa
+    using (select pa.fk_contract,
+                  pa.effective_date,
+                  pa.fk_debit,
+                  case when pa.fk_scheme in (1, 5, 6) then import_assignments_pkg.get_sspv_id(pa.fk_scheme) end fk_sspv,
+                  pa.pa_amount,
+                  pa.creation_date
+           from   pension_agreements_v pa
+          ) u
+    on    (paa.fk_pension_agreement = u.fk_contract and paa.serialno = 0)
+    when not matched then
+      insert(
+        id,
+        fk_pension_agreement,
+        fk_base_doc,
+        fk_provacct,
+        serialno,
+        canceled,
+        amount,
+        alt_date_begin,
+        creation_date
+      ) values (
+        pension_agreement_addendum_seq.nextval,
+        u.fk_contract,
+        u.fk_contract,
+        coalesce(u.fk_debit, u.fk_sspv),
+        0,
+        0,
+        u.pa_amount,
+        u.effective_date,
+        u.creation_date --более ставить нечего при импорте...
+      )
+    log errors into ERR$_PENSION_AGREEMENT_ADDEND (p_err_tag) reject limit unlimited;
+    
+    put('create_init_addendums: добавлено ' || sql%rowcount || ' начальных значений');
+  exception
+    when others then
+      fix_exception($$PLSQL_LINE, 'create_init_addendums');
+      raise;
+  end create_init_addendums;
   
   /**
    */
@@ -907,54 +956,6 @@ put('gather_table_stats(' || p_table_name || '): сбор статистики отключен!');
       fix_exception($$PLSQL_LINE, 'canceled_pa_addendums');
       raise;
   end canceled_pa_addendums;
-  
-  /**
-   * Процедура создает записи pension_agreements_addendums с cerilno = 0 - начальные значения пенсии
-   */
-  procedure create_init_addendums(
-    p_err_tag varchar2
-  ) is
-  begin
-    
-    merge into pension_agreement_addendums paa
-    using (select pa.fk_contract,
-                  pa.effective_date,
-                  pa.fk_debit,
-                  pa.pa_amount,
-                  pa.creation_date
-           from   pension_agreements_v pa
-          ) u
-    on    (paa.fk_pension_agreement = u.fk_contract and paa.serialno = 0)
-    when not matched then
-      insert(
-        id,
-        fk_pension_agreement,
-        fk_base_doc,
-        fk_provacct,
-        serialno,
-        canceled,
-        amount,
-        alt_date_begin,
-        creation_date
-      ) values (
-        pension_agreement_addendum_seq.nextval,
-        u.fk_contract,
-        u.fk_contract,
-        u.fk_debit,
-        0,
-        0,
-        u.pa_amount,
-        u.effective_date,
-        u.creation_date --более ставить нечего при импорте...
-      )
-    log errors into ERR$_PENSION_AGREEMENT_ADDEND (p_err_tag) reject limit unlimited;
-    
-    put('create_init_addendums: добавлено ' || sql%rowcount || ' начальных значений');
-  exception
-    when others then
-      fix_exception($$PLSQL_LINE, 'create_init_addendums');
-      raise;
-  end create_init_addendums;
 
   /**
   * Процедура импорта изменений к пенс.соглашениям
