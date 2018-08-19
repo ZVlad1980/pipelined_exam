@@ -51,6 +51,24 @@ create or replace package import_assignments_pkg is
   );
 
   /**
+  * Процедура импорта ограничений выплат
+  *  Разовый запуск:
+  *    begin
+  *      log_pkg.enable_output;
+  *      import_assignments_pkg.import_pay_restrictions;
+  *    exception
+  *      when others then
+  *        log_pkg.show_errors_all;
+  *        raise;
+  *    end;
+  *
+  *  l_err_tag - выводится в output
+  */
+  procedure import_pay_restrictions(
+    p_commit    boolean default true
+  );
+
+  /**
   * Процедура создания ЛСПВ
   *   Поддерживается многоразовый запуск за один период
   *

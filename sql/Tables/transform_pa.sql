@@ -30,7 +30,19 @@ create table transform_pa_portfolios(
 /
 alter table transform_pa_portfolios add constraint transform_pa_portfolios_pk primary key (ssylka_fl, date_nach_vypl)
 /
---alter table transform_pa add fk_portfolio
+create table transform_pa_restrictions(
+  import_id              varchar2(14) not null,
+  ssylka                 number(10)   not null,
+  fk_contragent          number(10)   not null,
+  fk_contract            number(10)   not null,
+  kod_ogr_pv             number(1)    not null,
+  nach_deistv            date         not null,
+  okon_deistv            date,
+  fk_pay_restrictions    number(10),
+  constraint transform_pa_rest_pk 
+    primary key (import_id, ssylka, kod_ogr_pv, nach_deistv, fk_contract)
+)
+/
 create table transform_pa_accounts(
   account_type           varchar2(2), --Cr/Db
   ssylka_fl              number(10),

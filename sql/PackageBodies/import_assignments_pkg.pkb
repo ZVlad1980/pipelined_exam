@@ -1001,6 +1001,111 @@ put('gather_table_stats(' || p_table_name || '): сбор статистики отключен!');
   end import_pa_addendums;
   
   /**
+   * Процедура заполняет таблицу TRANSFORM_PA_RESTRICTIONS, данными из FND
+   */
+  procedure insert_transform_rest(
+    p_import_id varchar2
+  ) is
+  begin
+    
+    insert into transform_pa_restrictions tpr(
+      import_id, 
+      ssylka, 
+      fk_contragent, 
+      fk_contract, 
+      kod_ogr_pv, 
+      nach_deistv,
+      okon_deistv
+    )
+      select p_import_id,
+             op.ssylka_fl,
+             tc.fk_contragent,
+             pa.fk_contract,
+             op.kod_ogr_pv,
+             op.nach_deistv,
+             op.okon_deistv
+      from   fnd.sp_ogr_pv_imp_v    op,
+             transform_contragents  tc,
+             pension_agreements     pa
+      where  1=1
+      and    not exists(
+               select 1
+               from   pay_restrictions pr
+               where  pr.fk_doc_with_acct = pa.fk_contract
+               and    pr.effective_date = op.nach_deistv
+             )
+      and    pa.effective_date = op.pd_data_nach_vypl
+      and    pa.fk_base_contract = tc.fk_contract
+      and    tc.ssylka_fl = op.ssylka_fl
+      and    op.nach_deistv < coalesce(op.okon_deistv, op.nach_deistv - 1);
+
+    put('insert_transform_rest: добавлено строк: ' || sql%rowcount);
+    
+  exception
+    when others then
+      fix_exception($$PLSQL_LINE, 'insert_transform_rest');
+      raise;
+  end insert_transform_rest;
+  
+  /**
+   * Процедура заполняет создает ограничения PAY_RESTRICTIONS
+   */
+  procedure create_pay_restrictions is
+  begin
+    
+    put('create_pay_restrictions: добавлено строк: ' || sql%rowcount);
+    
+  exception
+    when others then
+      fix_exception($$PLSQL_LINE, 'create_pay_restrictions');
+      raise;
+  end create_pay_restrictions;
+
+  /**
+  * Процедура импорта ограничений выплат
+  *  Разовый запуск:
+  *    begin
+  *      log_pkg.enable_output;
+  *      import_assignments_pkg.import_pay_restrictions;
+  *    exception
+  *      when others then
+  *        log_pkg.show_errors_all;
+  *        raise;
+  *    end;
+  *
+  *  l_err_tag - выводится в output
+  */
+  procedure import_pay_restrictions(
+    p_commit    boolean default true
+  ) is
+    l_err_tag varchar(250);
+    l_import_id varchar2(14);
+  begin
+    --
+    init_exception;
+    l_import_id := to_char(sysdate, 'yyyymmddhh24miss');
+    l_err_tag := 'ImportPA_' || l_import_id;
+    put('import_pay_restrictions: l_import_id = ' || l_import_id);
+    put('import_pay_restrictions: l_err_tag = ' || l_err_tag);
+    --
+    insert_transform_rest(p_import_id => l_import_id);
+    create_pay_restrictions;
+    --
+    if p_commit then
+      commit;
+    end if;
+    --
+    
+    gather_table_stats('PAY_RESTRICTIONS');
+    
+  exception
+    when others then
+      rollback;
+      fix_exception($$PLSQL_LINE, 'import_pa_addendums');
+      raise;
+  end import_pay_restrictions;
+  
+  /**
    * Процедура заполняет таблицу TRANSFORM_PA_ACCOUNTS, данными из FND
    */
   procedure insert_transform_pa_accounts(

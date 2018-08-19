@@ -12,24 +12,12 @@ create or replace view sp_pen_dog_imp_v as
              to_date(19950101, 'yyyymmdd')
            else 
              trunc(pd.data_nach_vypl, 'MM')
-         /*
-             case
-               when extract(day from pd.data_nach_vypl) > 15 then
-                 add_months(trunc(pd.data_nach_vypl, 'MM'), 1)
-               else trunc(pd.data_nach_vypl, 'MM')
-             end
-           */
          end                           from_date,
          case
            when pd.dog_rn = pd.dog_cnt then
              trunc(sysdate)
            else 
-             trunc(pd.data_okon_vypl, 'MM') - 1 /*
-             case
-               when extract(day from pd.data_okon_vypl) >= 15 then
-                 last_day(pd.data_okon_vypl)
-               else trunc(pd.data_okon_vypl, 'MM') - 1
-             end*/
+             trunc(pd.data_okon_vypl, 'MM') - 1
          end                           to_date,
          pd.data_nach_vypl,
          pd.data_okon_vypl,
