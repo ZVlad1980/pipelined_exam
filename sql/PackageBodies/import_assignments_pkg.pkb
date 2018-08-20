@@ -1224,7 +1224,8 @@ put('gather_table_stats(' || p_table_name || '): сбор статистики отключен!');
                        else
                         (select pd.data_okon_vypl
                          from   fnd.sp_pen_dog_imp_v pd
-                         where  pd.ssylka = tac.ssylka_fl
+                         where  pd.source_table = 'SP_PEN_DOG_ARH'
+                         and    pd.ssylka = tac.ssylka_fl
                          and    pd.data_nach_vypl = tac.pa_effective_date)
                      end close_date,
                      acc.fk_opened,
@@ -1250,7 +1251,8 @@ put('gather_table_stats(' || p_table_name || '): сбор статистики отключен!');
                        else
                         (select pd.data_okon_vypl
                          from   fnd.sp_pen_dog_imp_v pd
-                         where  pd.ssylka = tac.ssylka_fl
+                         where  pd.source_table = 'SP_PEN_DOG_ARH'
+                         and    pd.ssylka = tac.ssylka_fl
                          and    pd.data_nach_vypl = tac.pa_effective_date)
                      end close_date,
                      acc.fk_opened,
@@ -1679,7 +1681,7 @@ put('gather_table_stats(' || p_table_name || '): сбор статистики отключен!');
       serv_doc,
       serv_date,
       comments
-    ) select /*+ parallel (4) */ assignment_seq.nextval,
+    ) select assignment_seq.nextval,
              tas.fk_pay_order,
              pa.fk_contract,
              case 
