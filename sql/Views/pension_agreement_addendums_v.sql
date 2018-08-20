@@ -30,8 +30,3 @@
   ) paa
   group by paa.fk_pension_agreement, paa.from_date
 /
-select *
-from   pension_agreements_v pa
-where  1=1
-and    pa.fk_base_contract = 2704596
---and    pa.fk_contract = 3811044

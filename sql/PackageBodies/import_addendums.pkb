@@ -5,40 +5,21 @@ procedure primary_import is
 begin
   import_assignments_pkg.import_pa_addendums;
   return;
-  insert into pension_agreement_addendums(
-    fk_pension_agreement,
-    fk_base_doc,
-    fk_provacct,
-    serialno,
-    amount,
-    alt_date_begin,
-    creation_date
-  ) select pag.fk_contract fk_pension_agreement,
-           d.id            fk_base_doc,
-           case
-             when pag.fk_scheme = 1 then
-              prov_acct_sch_1
-             when pag.fk_scheme = 6 then
-              prov_acct_sch_6
-             else
-              pag.fk_debit
-           end             fk_prov_acct,
-           ipd.nom_izm     serialno,
-           ipd.summa_izm   amount,
-           ipd.data_izm    alt_date_begin,
-           ipd.dat_zanes   creation_date
-    from   fnd.sp_izm_pd ipd
-      join transform_contragents tc
-      on   tc.ssylka_fl = ipd.ssylka_fl
-      join pension_agreements_v pag
-      on   pag.fk_base_contract = tc.fk_contract
-      and  ipd.data_izm between pag.effective_date and coalesce(pag.effective_date_next - 1, ipd.data_izm)
-      join fnd.reer_doc_ngpf rdn
-      on   rdn.ssylka = ipd.ssylka_doc
-      join documents d
-      on   d.id = coalesce(rdn.kod_insz, rdn.ref_kodinsz)
-  ;
-end primary_import;
+insert into pension_agreement_addendums t 
+(t.fk_pension_agreement, t.fk_base_doc, t.fk_provacct, t.serialno, t.amount, t.alt_date_begin, t.creation_date)
+(
+select pag.fk_contract fk_pension_agreement, rdn.kod_insz fk_base_doc, 
+       case when co.fk_scheme = 1 then PROV_ACCT_SCH_1 when co.fk_scheme = 6 then PROV_ACCT_SCH_6 else a.id end  fk_prov_acct, 
+       ipd.nom_izm serialno, ipd.summa_izm amount, ipd.data_izm alt_date_begin, ipd.dat_zanes creation_date
+from fnd.sp_izm_pd ipd
+     join transform_contragents tc on tc.ssylka_fl = ipd.ssylka_fl
+     join pension_agreements pag on pag.fk_base_contract = tc.fk_contract
+     join contracts co on co.fk_document = pag.fk_base_contract
+     join fnd.reer_doc_ngpf rdn on rdn.ssylka = ipd.ssylka_doc
+     join documents d on d.id = rdn.kod_insz
+     left join accounts a on a.id = co.fk_account
+     );
+end;
 --895549
 -- последующая дозагрузка (если в FND добавились новые изменения ПД)
 procedure incremental_import is
@@ -65,7 +46,8 @@ end;
 -- процедура простановки значений поля canceled в pension_agreement_addendums
 procedure update_canceled is
 begin
-  return; --выполняется при импорте
+  import_assignments_pkg.import_pa_addendums;
+  return;
   update pension_agreement_addendums tt set canceled = 
     nvl((select nom_max from(
         select distinct ipd.ssylka_fl, pad.fk_pension_agreement, ipd.nom_izm, 
