@@ -12,7 +12,7 @@ create or replace view fnd.sp_ogr_pv_v as
          op.rid_td, 
          op.id
   from   sp_ogr_pv op
-  where  op.kod_ogr_pv < 1000
+  where  op.kod_ogr_pv < 100
   and    op.nom_vkl <> 1001
  union all
   select 'SP_OGR_PV_ARH' source_table,
@@ -28,7 +28,7 @@ create or replace view fnd.sp_ogr_pv_v as
          op.rid_td, 
          op.id
   from   sp_ogr_pv_arh op
-  where  op.kod_ogr_pv < 1000
+  where  op.kod_ogr_pv < 100
   and    op.nom_vkl <> 1001
 /
 grant select on sp_ogr_pv_v to gazfond

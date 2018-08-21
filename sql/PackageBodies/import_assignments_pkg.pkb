@@ -13,6 +13,9 @@ create or replace package body import_assignments_pkg is
   
   GC_PAY_CODE_PENSION constant assignments.fk_paycode%type := 5000;
   
+  GC_PR_DOC_CANCEL    constant number                      := 0;
+  GC_PR_DOC_INIT      constant number                      := 0;
+  
   procedure init_exception is
   begin 
     log_pkg.init_exception;
@@ -1014,55 +1017,38 @@ put('gather_table_stats(' || p_table_name || '): сбор статистики отключен!');
       fk_contragent, 
       fk_contract, 
       kod_ogr_pv, 
+      primech,
       nach_deistv,
       okon_deistv,
       fnd_nach_deistv,
       fnd_okon_deistv,
-      fk_pay_restriction
-    )
-      select p_import_id,
-             t.ssylka_fl,
-             t.fk_contragent,
-             t.fk_contract,
-             t.kod_ogr_pv,
-             t.nach_deistv,
-             t.okon_deistv,
-             t.real_nach_deistv,
-             t.real_okon_deistv,
-             t.fk_pay_restriction
-      from   (
-              select op.ssylka_fl,
-                     tc.fk_contragent,
-                     pa.fk_contract,
-                     op.kod_ogr_pv,
-                     op.nach_deistv,
-                     case 
-                       when op.okon_deistv = to_date(99991231, 'yyyymmdd') then null
-                       else op.okon_deistv
-                     end okon_deistv,
-                     op.real_nach_deistv,
-                     op.real_okon_deistv,
-                     (select pr.id --специально оставил подзапрос, чтобы при задвоении поднимало ошибку
-                       from   pay_restrictions pr
-                       where  pr.fk_doc_with_acct = pa.fk_contract
-                       and    pr.effective_date = op.nach_deistv
-                     ) fk_pay_restriction,
-                     op.okon_deistv op_okon_deistv
-              from   fnd.sp_ogr_pv_imp_v    op,
-                     transform_contragents  tc,
-                     pension_agreements     pa
-              where  1=1
-              and    pa.effective_date = op.pd_data_nach_vypl
-              and    pa.fk_base_contract = tc.fk_contract
-              and    tc.ssylka_fl = op.ssylka_fl
-             ) t,
-             pay_restrictions pr
-      where  (
-               (pr.id is not null and coalesce(pr.expiration_date, to_date(19000101010101, 'yyyymmddhh24miss')) <> coalesce(t.okon_deistv, to_date(19000101010101, 'yyyymmddhh24miss')))
-              or     
-               (pr.id is null and t.nach_deistv < coalesce(t.op_okon_deistv, t.nach_deistv + 1))
-             )
-      and    pr.id(+) = t.fk_pay_restriction;
+      fk_pay_restriction,
+      is_cancel
+    ) select p_import_id,
+             op.ssylka_fl,
+             tc.fk_contragent,
+             pa.fk_contract,
+             op.kod_ogr_pv,
+             op.primech,
+             op.nach_deistv,
+             op.okon_deistv,
+             op.real_nach_deistv,
+             op.real_okon_deistv,
+             (select pr.id --специально оставил подзапрос, чтобы при задвоении поднимало ошибку
+              from   pay_restrictions pr
+              where  pr.fk_doc_with_acct = pa.fk_contract
+              and    pr.effective_date = op.nach_deistv
+             ) fk_pay_restriction,
+             op.is_cancel
+      from   fnd.sp_ogr_pv_imp_v   op,
+             transform_contragents tc,
+             pension_agreements    pa
+      where  1 = 1
+      and    pa.effective_date = op.data_nach_vypl
+      and    pa.fk_base_contract = tc.fk_contract
+      and    tc.ssylka_fl = op.ssylka_fl
+      and    op.nach_deistv < to_date(20500101, 'yyyymmdd')
+      and    op.cnt = op.rn;
 
     put('insert_transform_rest: добавлено строк: ' || sql%rowcount);
     
@@ -1075,16 +1061,87 @@ put('gather_table_stats(' || p_table_name || '): сбор статистики отключен!');
   /**
    * Процедура заполняет создает ограничения PAY_RESTRICTIONS
    */
-  procedure create_pay_restrictions is
+  procedure create_pay_restrictions(
+    p_import_id varchar2,
+    p_err_tag   varchar2
+  ) is
   begin
     
+    insert into pay_restrictions(
+      id,
+      fk_doc_with_action,
+      fk_document_cancel,
+      fk_doc_with_acct,
+      effective_date,
+      expiration_date,
+      remarks,
+      islimited,
+      fk_contract,
+      creation_date
+    ) select pay_restriction_seq.nextval,
+             GC_PR_DOC_INIT,
+             case when tpr.is_cancel = 'Y' then GC_PR_DOC_CANCEL end,
+             tpr.fk_contract,
+             tpr.nach_deistv,
+             tpr.okon_deistv,
+             tpr.primech,
+             null,
+             null,
+             sysdate
+      from   transform_pa_restrictions tpr
+      where  1=1
+      and    tpr.fk_pay_restriction is null
+      and    tpr.import_id = p_import_id
+    log errors into ERR$_IMP_PAY_RESTRICTIONS (p_err_tag) reject limit unlimited;
+  
     put('create_pay_restrictions: добавлено строк: ' || sql%rowcount);
     
   exception
     when others then
-      fix_exception($$PLSQL_LINE, 'create_pay_restrictions');
+      fix_exception($$PLSQL_LINE, 'create_pay_restrictions(' || p_import_id || '): ');
       raise;
   end create_pay_restrictions;
+  
+  /**
+   * Процедура заполняет создает ограничения PAY_RESTRICTIONS
+   */
+  procedure update_pay_restrictions(
+    p_import_id varchar2,
+    p_err_tag   varchar2
+  ) is
+  begin
+    
+    merge into pay_restrictions pr
+    using (select pr.id,
+                  case
+                    when t.okon_deistv is not null and t.okon_deistv > t.nach_deistv then
+                      t.okon_deistv
+                  end okon_deistv,
+                  t.is_cancel
+           from   transform_pa_restrictions t,
+                  pay_restrictions          pr
+           where  pr.id = t.fk_pay_restriction
+           and    (
+                   (pr.fk_document_cancel is null and t.is_cancel = 'Y')        
+                   or
+                   (t.okon_deistv > t.nach_deistv and coalesce(t.okon_deistv, to_date(99991231, 'yyyymmdd')) <> coalesce(pr.expiration_date, to_date(99991231, 'yyyymmdd')))
+                  )
+           and    t.import_id = p_import_id
+          ) u
+    on    (pr.id = u.id)
+    when matched then
+      update set
+        pr.fk_document_cancel = case when u.is_cancel = 'Y' then GC_PR_DOC_CANCEL else pr.fk_document_cancel end,
+        pr.expiration_date = coalesce(u.okon_deistv, pr.expiration_date)
+    log errors into ERR$_IMP_PAY_RESTRICTIONS (p_err_tag) reject limit unlimited;
+    
+    put('update_pay_restrictions: обновлено строк: ' || sql%rowcount);
+    
+  exception
+    when others then
+      fix_exception($$PLSQL_LINE, 'update_pay_restrictions(' || p_import_id || '): ');
+      raise;
+  end update_pay_restrictions;
 
   /**
   * Процедура импорта ограничений выплат
@@ -1114,7 +1171,8 @@ put('gather_table_stats(' || p_table_name || '): сбор статистики отключен!');
     put('import_pay_restrictions: l_err_tag = ' || l_err_tag);
     --
     insert_transform_rest(p_import_id => l_import_id);
-    create_pay_restrictions;
+    create_pay_restrictions(p_import_id => l_import_id, p_err_tag => l_err_tag);
+    update_pay_restrictions(p_import_id => l_import_id, p_err_tag => l_err_tag);
     --
     if p_commit then
       commit;

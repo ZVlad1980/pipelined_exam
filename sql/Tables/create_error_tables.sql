@@ -10,7 +10,8 @@ declare
       'ASSIGNMENTS                    ERR$_IMP_ASSIGNMENTS',
       'PAY_PORTFOLIOS                 ERR$_IMP_PAY_PORTFOLIOS',
       'PAY_DECISIONS                  ERR$_IMP_PAY_DECISIONS',
-      'PENSION_AGREEMENT_ADDENDUMS    ERR$_PENSION_AGREEMENT_ADDEND'
+      'PENSION_AGREEMENT_ADDENDUMS    ERR$_PENSION_AGREEMENT_ADDEND',
+      'PAY_RESTRICTIONS               ERR$_IMP_PAY_RESTRICTIONS'
     );
 
   procedure create_err_table(

@@ -33,14 +33,16 @@ alter table transform_pa_portfolios add constraint transform_pa_portfolios_pk pr
 create table transform_pa_restrictions(
   import_id              varchar2(14) not null,
   ssylka                 number(10)   not null,
-  fk_contragent          number(10)   not null,
-  fk_contract            number(10)   not null,
+  fk_contragent          number(10),
+  fk_contract            number(10),
   kod_ogr_pv             number(1)    not null,
+  primech                varchar2(255) ,
   nach_deistv            date         not null,
   okon_deistv            date                 ,
   fnd_nach_deistv        date         not null,
   fnd_okon_deistv        date                 ,
   fk_pay_restriction     number(10),
+  is_cancel              varchar2(1),
   constraint transform_pa_rest_pk 
     primary key (import_id, ssylka, kod_ogr_pv, nach_deistv, fk_contract)
 )
