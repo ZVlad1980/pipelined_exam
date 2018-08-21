@@ -1,17 +1,20 @@
-select --count(1) /*
-       op.kod_ogr_pv,op.ssylka_fl, op.nach_deistv
+select count(1) /*
+       op.kod_ogr_pv,op.ssylka_fl, op.nach_deistv--, op.okon_deistv
        --*/
 from   sp_ogr_pv_v op
-minus
-select count(1)/*
-       op.kod_ogr_pv,op.ssylka_fl, op.nach_deistv
+union --minus
+select op.kod_insz --count(1)/*
+       --op.kod_ogr_pv,op.ssylka_fl, op.nach_deistv--, op.okon_deistv
        --*/
 from   sp_ogr_pv_imp_v op
+where  op.nach_deistv < coalesce(op.okon_deistv, op.nach_deistv + 1)
+and    op.kod_insz is not null
 /
-select count(1)/*
+select opi.kod_ogr_pv, opi.ssylka_fl, opi.nach_deistv, count(1) cnt/*
        opi.kod_ogr_pv,opi.ssylka_fl, opi.nach_deistv, min(opi.pd_data_nach_vypl) min_nach_vypl, max(opi.pd_data_nach_vypl) max_nach_vypl
        --*/
 from   sp_ogr_pv_imp_v opi
+where  opi.nach_deistv < opi.okon_deistv
 group by opi.kod_ogr_pv, opi.ssylka_fl, opi.nach_deistv
 having count(1) > 1
 /

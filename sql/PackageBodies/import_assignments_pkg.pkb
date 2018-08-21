@@ -1008,36 +1008,61 @@ put('gather_table_stats(' || p_table_name || '): сбор статистики отключен!');
   ) is
   begin
     
-    insert into transform_pa_restrictions tpr(
+    insert into transform_pa_restrictions(
       import_id, 
       ssylka, 
       fk_contragent, 
       fk_contract, 
       kod_ogr_pv, 
       nach_deistv,
-      okon_deistv
+      okon_deistv,
+      fnd_nach_deistv,
+      fnd_okon_deistv,
+      fk_pay_restriction
     )
       select p_import_id,
-             op.ssylka_fl,
-             tc.fk_contragent,
-             pa.fk_contract,
-             op.kod_ogr_pv,
-             op.nach_deistv,
-             op.okon_deistv
-      from   fnd.sp_ogr_pv_imp_v    op,
-             transform_contragents  tc,
-             pension_agreements     pa
-      where  1=1
-      and    not exists(
-               select 1
-               from   pay_restrictions pr
-               where  pr.fk_doc_with_acct = pa.fk_contract
-               and    pr.effective_date = op.nach_deistv
+             t.ssylka_fl,
+             t.fk_contragent,
+             t.fk_contract,
+             t.kod_ogr_pv,
+             t.nach_deistv,
+             t.okon_deistv,
+             t.real_nach_deistv,
+             t.real_okon_deistv,
+             t.fk_pay_restriction
+      from   (
+              select op.ssylka_fl,
+                     tc.fk_contragent,
+                     pa.fk_contract,
+                     op.kod_ogr_pv,
+                     op.nach_deistv,
+                     case 
+                       when op.okon_deistv = to_date(99991231, 'yyyymmdd') then null
+                       else op.okon_deistv
+                     end okon_deistv,
+                     op.real_nach_deistv,
+                     op.real_okon_deistv,
+                     (select pr.id --специально оставил подзапрос, чтобы при задвоении поднимало ошибку
+                       from   pay_restrictions pr
+                       where  pr.fk_doc_with_acct = pa.fk_contract
+                       and    pr.effective_date = op.nach_deistv
+                     ) fk_pay_restriction,
+                     op.okon_deistv op_okon_deistv
+              from   fnd.sp_ogr_pv_imp_v    op,
+                     transform_contragents  tc,
+                     pension_agreements     pa
+              where  1=1
+              and    pa.effective_date = op.pd_data_nach_vypl
+              and    pa.fk_base_contract = tc.fk_contract
+              and    tc.ssylka_fl = op.ssylka_fl
+             ) t,
+             pay_restrictions pr
+      where  (
+               (pr.id is not null and coalesce(pr.expiration_date, to_date(19000101010101, 'yyyymmddhh24miss')) <> coalesce(t.okon_deistv, to_date(19000101010101, 'yyyymmddhh24miss')))
+              or     
+               (pr.id is null and t.nach_deistv < coalesce(t.op_okon_deistv, t.nach_deistv + 1))
              )
-      and    pa.effective_date = op.pd_data_nach_vypl
-      and    pa.fk_base_contract = tc.fk_contract
-      and    tc.ssylka_fl = op.ssylka_fl
-      and    op.nach_deistv < coalesce(op.okon_deistv, op.nach_deistv - 1);
+      and    pr.id(+) = t.fk_pay_restriction;
 
     put('insert_transform_rest: добавлено строк: ' || sql%rowcount);
     
@@ -1505,7 +1530,6 @@ put('gather_table_stats(' || p_table_name || '): сбор статистики отключен!');
     
     put('Create ' || sql%rowcount || ' IPS.');
     put('Complete create IPS: ' || to_char(sysdate, 'dd.mm.yyyy hh24:mi:ss'));
-    
     
   exception
     when others then

@@ -37,8 +37,10 @@ create table transform_pa_restrictions(
   fk_contract            number(10)   not null,
   kod_ogr_pv             number(1)    not null,
   nach_deistv            date         not null,
-  okon_deistv            date,
-  fk_pay_restrictions    number(10),
+  okon_deistv            date                 ,
+  fnd_nach_deistv        date         not null,
+  fnd_okon_deistv        date                 ,
+  fk_pay_restriction     number(10),
   constraint transform_pa_rest_pk 
     primary key (import_id, ssylka, kod_ogr_pv, nach_deistv, fk_contract)
 )

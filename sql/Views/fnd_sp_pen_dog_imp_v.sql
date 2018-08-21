@@ -9,13 +9,13 @@ create or replace view sp_pen_dog_imp_v as
          pd.status_pen,
          case
            when pd.dog_rn = 1 then
-             to_date(19950101, 'yyyymmdd')
+             TO_DATE(1, 'J') --to_date(19000101, 'yyyymmdd')
            else 
              trunc(pd.data_nach_vypl, 'MM')
          end                           from_date,
          case
            when pd.dog_rn = pd.dog_cnt then
-             trunc(sysdate)
+             trunc(to_date(99991231, 'yyyymmdd'))
            else 
              trunc(pd.data_okon_vypl, 'MM') - 1
          end                           to_date,
