@@ -91,8 +91,10 @@ create or replace package body import_assignments_pkg is
   ) is
     l_time number;
   begin
-put('gather_table_stats(' || p_table_name || '): сбор статистики отключен!');
+    /*
+    put('gather_table_stats(' || p_table_name || '): сбор статистики отключен!');
     return;
+    */
     l_time := dbms_utility.get_time;
     put('Start gather stats for ' || p_table_name || ' ... ', false);
     dbms_stats.gather_table_stats(user, p_table_name);
@@ -794,10 +796,11 @@ put('gather_table_stats(' || p_table_name || '): сбор статистики отключен!');
       commit;
     end if;
     
+    /*
     gather_table_stats('CONTRACTS');
     gather_table_stats('DOCUMENTS');
     gather_table_stats('PENSION_AGREEMENTS');
-
+*/
   exception
     when others then
       rollback;
@@ -1084,7 +1087,7 @@ put('gather_table_stats(' || p_table_name || '): сбор статистики отключен!');
              tpr.fk_contract,
              tpr.nach_deistv,
              tpr.okon_deistv,
-             tpr.primech,
+             p_import_id || '#' || tpr.kod_ogr_pv || '#' || tpr.primech,
              null,
              null,
              sysdate
@@ -1095,6 +1098,29 @@ put('gather_table_stats(' || p_table_name || '): сбор статистики отключен!');
     log errors into ERR$_IMP_PAY_RESTRICTIONS (p_err_tag) reject limit unlimited;
   
     put('create_pay_restrictions: добавлено строк: ' || sql%rowcount);
+    
+    update transform_pa_restrictions tpr
+    set    tpr.fk_pay_restriction = (
+             select pr.id
+             from   pay_restrictions          pr
+             where  1=1
+             and    substr(pr.remarks, 16, instr(pr.remarks, '#', 17) - 16) = tpr.kod_ogr_pv
+             and    substr(pr.remarks, 1, 14) = tpr.import_id
+             and    pr.effective_date = tpr.nach_deistv
+             and    pr.fk_doc_with_acct = tpr.fk_contract
+           )
+    where  tpr.import_id = p_import_id
+    and    tpr.fk_pay_restriction is null;
+    
+    update pay_restrictions pr
+    set    pr.remarks = substr(pr.remarks, instr(pr.remarks, '#', 17), length(pr.remarks))
+    where  1=1
+    and    substr(pr.remarks, 1, 14) = p_import_id
+    and    pr.id in (
+             select tpr.fk_pay_restriction
+             from   transform_pa_restrictions tpr
+             where  tpr.import_id = p_import_id
+           );
     
   exception
     when others then
@@ -1179,7 +1205,7 @@ put('gather_table_stats(' || p_table_name || '): сбор статистики отключен!');
     end if;
     --
     
-    gather_table_stats('PAY_RESTRICTIONS');
+    --gather_table_stats('PAY_RESTRICTIONS');
     
   exception
     when others then
@@ -1645,7 +1671,7 @@ put('gather_table_stats(' || p_table_name || '): сбор статистики отключен!');
       commit;
     end if;
     --
-    gather_table_stats('ACCOUNTS');
+    --gather_table_stats('ACCOUNTS');
     --
   exception
     when others then
@@ -1665,7 +1691,7 @@ put('gather_table_stats(' || p_table_name || '): сбор статистики отключен!');
   ) is
   begin
     
-    merge /*+ parallel(4) */ into transform_pa_assignments tas
+    merge into transform_pa_assignments tas
     using (select  trunc(vp.data_op) date_op
            from   fnd.vypl_pen_imp_v vp
            where  vp.data_op between p_from_date and p_to_date
@@ -1746,7 +1772,7 @@ put('gather_table_stats(' || p_table_name || '): сбор статистики отключен!');
     --put('Импорт начислений отключен!!! Не закончена логика определения даты и типа начисления (для однопериодных)');    return;
     l_err_tag := p_err_tag || '#' || to_char(p_period, 'yyyymmdd');
     
-    insert /*+ parallel(assignments, 4) */ into assignments(
+    insert into assignments(
       id,
       fk_doc_with_action,
       fk_doc_with_acct,
@@ -1763,7 +1789,7 @@ put('gather_table_stats(' || p_table_name || '): сбор статистики отключен!');
       serv_doc,
       serv_date,
       comments
-    ) select assignment_seq.nextval,
+    ) select /*+ parallel(4)*/ assignment_seq.nextval,
              tas.fk_pay_order,
              pa.fk_contract,
              case 
@@ -1787,7 +1813,7 @@ put('gather_table_stats(' || p_table_name || '): сбор статистики отключен!');
              trunc(vp.data_nachisl, 'MM') + dbl.cnt serv_date,
              to_char(vp.tip_vypl) || '/' || to_char(vp.data_nachisl, 'yyyymmdd') comments
       from   transform_pa_assignments tas,
-             fnd.vypl_pen_imp_v           vp,  --NEWVIEW vypl_pen_v
+             fnd.vypl_pen_imp_v       vp,  --NEWVIEW vypl_pen_v
              pension_agreements_v     pa,
              lateral(
                select count(1) cnt
@@ -1900,8 +1926,8 @@ put('gather_table_stats(' || p_table_name || '): сбор статистики отключен!');
         set_state_complete_(l_periods(i), 'C');
       exception
         when others then
-          set_state_complete_at_(l_periods(i), 'E');
           rollback;
+          set_state_complete_at_(l_periods(i), 'E');
           raise program_error;
       end;
     end loop;

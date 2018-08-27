@@ -1,4 +1,4 @@
---create or replace view pension_agreement_addendums_v as 
+create or replace view pension_agreement_addendums_v as 
   select   paa.fk_pension_agreement,
            paa.from_date,
            max(greatest(trunc(paa.end_date, 'MM') - 1, last_day(paa.from_date))) end_date,
@@ -26,7 +26,6 @@
            paa.alt_date_end
     from   pension_agreement_addendums paa
     where  paa.canceled = 0
-    and    paa.fk_pension_agreement = 3811044 
   ) paa
   group by paa.fk_pension_agreement, paa.from_date
 /

@@ -23,11 +23,6 @@ create or replace view sp_ogr_pv_rev_v as
          op.okon_deistv real_okon_deistv
   from   sp_ogr_pv_v      op
   where  1=1
-  and    (
-          (op.kod_ogr_pv <> 3)
-          or
-          (op.kod_ogr_pv = 3 and op.okon_deistv is not null)
-         )
 /
 grant select on sp_ogr_pv_rev_v to gazfond
 /

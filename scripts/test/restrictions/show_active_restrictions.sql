@@ -25,3 +25,8 @@ and    pr.fk_document_cancel is null
 ) pr where pr.cnt > 1
 ) pr where pr.max_is_join = 'Y'
 order by pr.fk_doc_with_acct
+/
+select case when pr.fk_document_cancel is null then 'N' else 'Y' end cancelled, count(1)
+from   pay_restrictions pr
+group by case when pr.fk_document_cancel is null then 'N' else 'Y' end
+/
