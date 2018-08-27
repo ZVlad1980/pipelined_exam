@@ -20,6 +20,11 @@ create or replace package pay_gfnpo_pkg is
     p_oper_id      number,
     p_parallel     number default 4
   ) return number;
+  
+  procedure fill_charges_by_agr_range(
+    p_start_id number,
+    p_end_id   number
+  );
 
 end pay_gfnpo_pkg;
 /

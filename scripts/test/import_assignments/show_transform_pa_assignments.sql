@@ -16,5 +16,5 @@ order by t.pay_month
 /
 select t.*, t.rowid
 from   transform_pa_assignments t
-where  t.date_op > to_date(20161101, 'yyyymmdd')--t.state = 'E'
+--where  t.date_op > to_date(20161101, 'yyyymmdd')--t.state = 'E'
 order by t.date_op

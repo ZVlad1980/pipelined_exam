@@ -276,8 +276,7 @@ create or replace package body pay_gfnpo_pkg is
   from   dual
   connect by level < :1
 )
-select /*+ parallel(' || p_parallel || ') */ pa.fk_contract,
-       pa.fk_base_contract,
+select /*parallel(' || p_parallel || ') */ pa.fk_contract,
        coalesce(paa.fk_provacct, pa.fk_debit) fk_debit,
        pa.fk_credit,
        pa.fk_company,
@@ -303,6 +302,7 @@ and    not exists (
          from   assignments a
          where  trunc(a.paydate, ''MM'') = m.paydate
          and    a.fk_paycode = ' || GC_ASG_PAY_CODE || '
+         and    a.fk_asgmt_type = 2
          and    a.fk_credit = pa.fk_credit
        )
 and    not exists (
@@ -335,9 +335,6 @@ and    pa.effective_date <= :4' || chr(10) ||
       when p_contract_type = GC_CT_TERM then
         'and pa.expiration_date is not null'
     end
-    /*end || chr(10) || 
-    'order by case when pa.expiration_date is null then 1 else 2 end, pa.fk_company, pa.fk_scheme, pa.fk_contragent, m.paydate'
-    */
     ;
     --
     put_line(l_request);
@@ -367,21 +364,6 @@ and    pa.effective_date <= :4' || chr(10) ||
       raise;
   end get_agreements_cur;
   
-  function get_solidary_acct_company(
-    p_fk_company  contracts.fk_company%type,
-    p_fk_scheme   contracts.fk_scheme%type
-  ) return number RESULT_CACHE is
-    
-    l_result number;
-  begin
-    l_result := 10042;
-    return l_result;
-  exception
-    when others then
-      fix_exception($$PLSQL_LINE, 'get_solidary_acct_company(' || p_fk_company || ', ' || p_fk_scheme || ') failed');
-      raise;
-  end get_solidary_acct_company;
-  
   /**
    *
    */
@@ -392,7 +374,6 @@ and    pa.effective_date <= :4' || chr(10) ||
   ) is
     type l_agreements_typ is record (
       fk_contract           pension_agreements.fk_contract%type,
-      fk_base_contract      pension_agreements.fk_base_contract%type,
       fk_debit              contracts.fk_account%type,
       fk_credit             contracts.fk_account%type,
       fk_company            contracts.fk_company%type,
@@ -586,6 +567,100 @@ and    pa.effective_date <= :4' || chr(10) ||
       return GC_ST_ERROR;
       
   end fill_charges_by_pay_order;
+  
+  
+  
+  procedure fill_charges_by_agr_range(
+    p_start_id number,
+    p_end_id   number
+  ) is
+    l_start_time number;
+    l_cnt        number;
+    cursor l_asg_cur is
+      with w_months(paydate) as (
+        select /*+ materialize*/ add_months(to_date(/*19950101*/20160101, 'yyyymmdd'), level - 1) paydate
+        from   dual
+        connect by level < 36--284
+      )
+      select pa.fk_contract,
+             pa.period_code,
+             pa.fk_debit,
+             pa.fk_credit,
+             pa.fk_scheme,
+             pa.fk_contragent,
+             pa.effective_date,
+             pa.last_pay_date,
+             m.paydate,
+             (select to_char(
+                       case
+                         when m.paydate = paa.from_date then
+                          paa.first_amount
+                         else
+                          paa.amount
+                       end
+                     ) || '#' || to_char(paa.fk_provacct) addendums_info
+              from   pension_agreement_addendums_v paa
+              where  1 = 1
+              and    m.paydate between paa.from_date and paa.end_date
+              and    paa.fk_pension_agreement = pa.fk_contract
+             ) addendums_info
+      from   AGREEMENTS_LIST_T pa,
+             w_months     m
+      where  1=1
+      and    not exists(
+               select 1
+               from   assignments a
+               where  trunc(a.paydate, 'MM') = m.paydate
+               and    a.fk_paycode = 5000
+               and    a.fk_asgmt_type = 2
+               and    a.fk_credit = pa.fk_credit
+             )
+      and    not exists(
+               select 1
+               from   pay_restrictions pr
+               where  pr.fk_document_cancel is null
+               and    m.paydate between pr.effective_date and nvl(pr.expiration_date, m.paydate)
+               and    pr.fk_doc_with_acct = pa.fk_contract
+             )
+      and    m.paydate between trunc(pa.effective_date, 'MM') and pa.last_pay_date
+      and    pa.id between p_start_id and p_end_id;
+    
+    procedure process_(p_row in out nocopy l_asg_cur%rowtype) is
+      l_asg_row l_asg_cur%rowtype;
+      l_amount  number;
+      l_acct    number;
+      l_pos      number;
+    begin
+      
+      l_asg_row := p_row;
+      l_pos     := instr(l_asg_row.addendums_info, '#');
+      l_amount  := to_number(substr(p_row.addendums_info, 1, l_pos - 1));
+      l_acct    := to_number(substr(p_row.addendums_info, l_pos + 1));
+    end;
+  begin
+    l_start_time := dbms_utility.get_time;
+    l_cnt := 0;
+    for asg in l_asg_cur loop
+      process_(asg);
+      l_cnt := l_cnt + 1;
+    end loop;
+    
+    l_start_time := dbms_utility.get_time - l_start_time;
+    
+    insert into pay_gfnpo_logs(
+      start_id,
+      end_id,
+      rows_cnt,
+      duration,
+      session_id
+    ) values (
+      p_start_id,
+      p_end_id,
+      l_cnt,
+      l_start_time / 100,
+      SYS_CONTEXT('USERENV', 'SESSIONID')
+    );
+  end fill_charges_by_agr_range;
   
 end pay_gfnpo_pkg;
 /

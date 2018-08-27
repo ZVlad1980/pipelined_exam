@@ -3,6 +3,7 @@ create or replace view pension_agreements_v as
          cn.fk_document                              fk_contract,
          cn.cntr_number                              cntr_number,
          pa.state                                    state,
+         pa.period_code                              period_code,
          pa.isarhv,
          bcn.fk_account                              fk_debit,
          cn.fk_account                               fk_credit,
@@ -16,8 +17,8 @@ create or replace view pension_agreements_v as
          p.deathdate,
          last_day(
            least(
-             coalesce(p.deathdate, sysdate),
-             coalesce(pa.expiration_date, sysdate))
+             coalesce(p.deathdate, to_date(99991231, 'yyyymmdd')),
+             coalesce(pa.expiration_date, to_date(99991231, 'yyyymmdd')))
          )                                           last_pay_date,
          pa.creation_date,
          pa.last_update

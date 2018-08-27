@@ -44,5 +44,5 @@ begin
   end loop;
 end;
 /
-create index err$_assignments_ix on err$_assignments(fk_doc_with_action)
+create index err$_assignments_ix on err$_assignments(fk_doc_with_action) tablespace GFNDINDX
 /

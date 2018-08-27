@@ -12,5 +12,5 @@ create table pay_order_filters (
     references pay_orders(fk_document)
 )
 /
-create index pay_order_filter_po_ix on pay_order_filters(fk_pay_order)
+create index pay_order_filter_po_ix on pay_order_filters(fk_pay_order) tablespace GFNDINDX
 /

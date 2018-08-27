@@ -9,9 +9,9 @@ create table transform_pa(
   data_arh               date
 )
 /
-alter table transform_pa add constraint transform_pa_pk primary key (ssylka_fl, date_nach_vypl)
+alter table transform_pa add constraint transform_pa_pk primary key (ssylka_fl, date_nach_vypl) using index tablespace GFNDINDX
 /
-create unique index transform_pa_ux on transform_pa(source_table, ssylka_fl, data_arh)
+create unique index transform_pa_ux on transform_pa(source_table, ssylka_fl, data_arh) tablespace GFNDINDX
 /
 create table transform_pa_portfolios(
   ssylka_fl         number,
@@ -28,7 +28,7 @@ create table transform_pa_portfolios(
   fk_pay_decision   number(10)
 )
 /
-alter table transform_pa_portfolios add constraint transform_pa_portfolios_pk primary key (ssylka_fl, date_nach_vypl)
+alter table transform_pa_portfolios add constraint transform_pa_portfolios_pk primary key (ssylka_fl, date_nach_vypl) using index tablespace GFNDINDX
 /
 create table transform_pa_restrictions(
   import_id              varchar2(14) not null,
@@ -45,6 +45,7 @@ create table transform_pa_restrictions(
   is_cancel              varchar2(1),
   constraint transform_pa_rest_pk 
     primary key (import_id, ssylka, kod_ogr_pv, nach_deistv, fk_contract)
+    using index tablespace GFNDINDX
 )
 /
 create table transform_pa_accounts(
@@ -61,12 +62,14 @@ create table transform_pa_accounts(
   source_table           varchar2(32)  not null
 )
 /
-alter table transform_pa_accounts add constraint transform_pa_accounts_pk primary key (account_type, ssylka_fl, pa_effective_date)
+alter table transform_pa_accounts add constraint transform_pa_accounts_pk primary key (account_type, ssylka_fl, pa_effective_date) using index tablespace GFNDINDX
 /
-create unique index transform_pa_account_cntr_ux on transform_pa_accounts(account_type, fk_contract)
+create unique index transform_pa_account_cntr_ux on transform_pa_accounts(account_type, fk_contract) tablespace GFNDINDX
 /
 create table transform_pa_assignments(
-  date_op                date         not null primary key,
+  date_op                date         not null 
+    constraint transform_pa_assign_pk primary key 
+      using index tablespace GFNDINDX,
   fk_pay_order           number(10)   not null,
   import_id              varchar2(14) not null,
   state                  varchar2(1)  default 'N', --New/Complete
