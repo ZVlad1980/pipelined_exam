@@ -33,6 +33,13 @@ create or replace package import_assignments_pkg is
   );
   
   /**
+   * Процедура приводит периодичность выплат в договорах GAZFOND в соотстветствие с FND
+   */
+  procedure update_period_code(
+    p_commit boolean default true
+  );
+  
+  /**
   * Процедура импорта изменений к пенс.соглашениям
   *  Разовый запуск:
   *    begin

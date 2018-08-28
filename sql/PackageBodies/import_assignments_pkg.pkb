@@ -263,7 +263,7 @@ create or replace package body import_assignments_pkg is
            pd.pd_data_okon_vypl data_okon_vypl,
            pd.razm_pen,
            pd.delta_pen,
-           nvl(pd.id_period_payment, 0) period_code,
+           nvl(pd.id_period_payment, 1) period_code,
            case 
              when pd.id_period_payment <> 0 and pd.data_okon_vypl is not null then extract(year from pd.data_okon_vypl) - extract(year from pd.data_nach_vypl)
              else null
@@ -698,6 +698,47 @@ create or replace package body import_assignments_pkg is
       raise;
   end create_pay_decisions;
   
+  /**
+   * Процедура приводит периодичность выплат в договорах GAZFOND в соотстветствие с FND
+   */
+  procedure update_period_code(
+    p_commit boolean default true
+  ) is
+    cursor l_pa_cur is
+      select pa.fk_contract, coalesce(pd.id_period_payment, 1) period_code
+      from   pension_agreements_v  pa,
+             transform_contragents tc,
+             fnd.sp_pen_dog_v      pd
+      where  1=1
+      and    pa.period_code <> coalesce(pd.id_period_payment, 1)
+      and    pd.data_nach_vypl = pa.effective_date
+      and    pd.ssylka = tc.ssylka_fl
+      and    tc.fk_contract = pa.fk_base_contract;
+    type l_pa_tbl_typ is table of l_pa_cur%rowtype;
+    l_pa_tbl l_pa_tbl_typ;
+  begin
+    open l_pa_cur;
+    fetch l_pa_cur
+      bulk collect into l_pa_tbl;
+    close l_pa_cur;
+    
+    put('update_period_code: ' || l_pa_tbl.count);
+    
+    forall i in 1..l_pa_tbl.count
+      update pension_agreements pa
+      set    pa.period_code = l_pa_tbl(i).period_code
+      where  pa.fk_contract = l_pa_tbl(i).fk_contract;
+    
+    if p_commit then 
+      commit;
+    end if;
+  
+  exception
+    when others then
+      rollback;
+      fix_exception($$PLSQL_LINE, 'update_period_code');
+      raise;
+  end update_period_code;
   
   /**
    * Процедура импорта пенс.соглашений, по которым были начисления в заданном периоде (мин. квант - месяц)
@@ -796,6 +837,7 @@ create or replace package body import_assignments_pkg is
       commit;
     end if;
     
+    update_period_code(p_commit);
     /*
     gather_table_stats('CONTRACTS');
     gather_table_stats('DOCUMENTS');
