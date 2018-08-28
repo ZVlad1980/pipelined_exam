@@ -7,7 +7,8 @@ create table agreements_list_t(
   FK_SCHEME           NUMBER(10,0), 
   FK_CONTRAGENT       NUMBER(10,0), 
   EFFECTIVE_DATE      DATE, 
-  LAST_PAY_DATE       DATE
+  LAST_PAY_DATE       DATE,
+  creation_date       date
 );
 /
 create table pay_gfnpo_logs(

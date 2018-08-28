@@ -18,7 +18,8 @@ create or replace view vypl_pen_imp_v as
          pd.source_table,
          pd.from_date,
          pd.to_date,
-         pd.data
+         pd.data,
+         vp.ssylka_doc
   from   fnd.vypl_pen         vp,
          fnd.sp_pen_dog_imp_v pd
   where  1=1

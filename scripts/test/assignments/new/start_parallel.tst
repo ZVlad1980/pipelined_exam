@@ -1,5 +1,5 @@
 PL/SQL Developer Test script 3.0
-80
+83
 -- Created on 24.08.2018 by V.ZHURAVOV 
 declare 
   C_PAY_DATE constant date := to_date(20180731, 'yyyymmdd');
@@ -19,7 +19,8 @@ declare
       fk_scheme,
       fk_contragent,
       effective_date,
-      last_pay_date
+      last_pay_date,
+      creation_date 
     ) select /*+ parallel(4)*/
              rownum,
              fk_contract,
@@ -29,7 +30,8 @@ declare
              fk_scheme,
              fk_contragent,
              effective_date,
-             least(last_pay_date, p_pay_date) last_pay_date--окнечная дата зависит от period_code
+             least(last_pay_date, p_pay_date) last_pay_date, --окнечная дата зависит от period_code
+             pa.creation_date
       from   pension_agreements_charge_v pa 
       where  pa.effective_date <= p_pay_date
       --and    rownum < 10001
@@ -38,6 +40,7 @@ declare
     dbms_stats.gather_table_stats(user, upper('agreements_list_t'), cascade => true);
   end create_list;
 begin
+  create_list(last_day(C_PAY_DATE));   return;
   begin
     dbms_parallel_execute.drop_task(task_name => 'INSERT_ASSIGNMENTS');
   exception
@@ -45,7 +48,7 @@ begin
       null;
   end;
   -- Test statements here
-  create_list(last_day(C_PAY_DATE));   return;
+  
   dbms_parallel_execute.create_task(
     task_name => C_TASK_NAME
   );
