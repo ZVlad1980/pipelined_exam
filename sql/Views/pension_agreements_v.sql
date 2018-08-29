@@ -33,4 +33,3 @@ create or replace view pension_agreements_v as
   and    cn.fk_scheme in (1, 2, 3, 4, 5, 6, 8)
   and    cn.fk_cntr_type = 6
 /
---

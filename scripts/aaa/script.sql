@@ -40,10 +40,21 @@ Insert into TRANSFORM_PAYORDERS_NPO (
    OPERATION_DATE, PAYMENT_PERIOD,
    POLOVINA, FLAG_USAGE
 )
-Select SSYLKA, TIP_DOC, DATA_DOC, KEM_PODPIS, KR_SODERG, REF_KODINSZ,
-       extract(DAY from DATA_DOC) DEN, extract(MONTH from DATA_DOC) MES, extract(YEAR from DATA_DOC) GOD, 
-       DATA_DOC OPERATION_DATE, trunc(DATA_DOC,'MON') PAYMENT_PERIOD, 1 POLOVINA, 2 FLAG_USAGE  
-from fnd.REER_DOC_NGPF where SSYLKA in (13906,38132,245849,325969);
+select ssylka,
+       tip_doc,
+       data_doc,
+       kem_podpis,
+       kr_soderg,
+       ref_kodinsz,
+       extract(day from data_doc) den,
+       extract(month from data_doc) mes,
+       extract(year from data_doc) god,
+       data_doc operation_date,
+       trunc(data_doc, 'MON') payment_period,
+       1 polovina,
+       2 flag_usage
+from   fnd.reer_doc_ngpf
+where  ssylka in (13906, 38132, 245849, 325969);
 
 Commit;
 
@@ -76,33 +87,48 @@ Commit;
 
 Create table TRANSFORM_PAYORDERS_LNK as 
 -- 4 исключения/это не распоряжение, а док-сон для операций списком: имитация выплаты пенсии в наследство и перерасчеты НДФЛ 
-Select hpo.SSYLKA ORDER_FNDSSYLKA, hpo.REF_KODINSZ ORDER_GFDOCID, hpo.SSYLKA POCARD_FNDSSYLKA, hpo.REF_KODINSZ POCARD_GFDOCID
-from (
-    Select distinct SSYLKA_DOC
-        from fnd.VYPL_PEN 
-        where SSYLKA_DOC in (Select SSYLKA from TRANSFORM_PAYORDERS_NPO where FLAG_USAGE=2)
-    ) poc
-    inner join TRANSFORM_PAYORDERS_NPO hpo on hpo.SSYLKA=poc.SSYLKA_DOC;
-    
-ALTER TABLE TRANSFORM_PAYORDERS_LNK ADD (
-  CONSTRAINT TRANSFORM_PAYORDERS_LNK_PK
-  PRIMARY KEY
-  (POCARD_FNDSSYLKA));
-   
+select hpo.ssylka      order_fndssylka,
+       hpo.ref_kodinsz order_gfdocid,
+       hpo.ssylka      pocard_fndssylka,
+       hpo.ref_kodinsz pocard_gfdocid
+from   (select distinct ssylka_doc
+        from   fnd.vypl_pen
+        where  ssylka_doc in (select ssylka
+                              from   transform_payorders_npo
+                              where  flag_usage = 2)) poc
+inner  join transform_payorders_npo hpo
+on     hpo.ssylka = poc.ssylka_doc;
+
+alter table transform_payorders_lnk add(constraint
+                                        transform_payorders_lnk_pk primary
+                                        key(pocard_fndssylka));
+
 -- до апреля 98 года одна выплата в месяц
-Insert into TRANSFORM_PAYORDERS_LNK(
-       ORDER_FNDSSYLKA, ORDER_GFDOCID,   POCARD_FNDSSYLKA, POCARD_GFDOCID
-)
-Select hpo.SSYLKA,      hpo.REF_KODINSZ, rd.SSYLKA,        rd.REF_KODINSZ
-from (
-    Select distinct SSYLKA_DOC, DATA_OP 
-        from fnd.VYPL_PEN 
-        where NOM_VKL<>1001 and DATA_OP<to_date('01.04.1998','dd.mm.yyyy')
-          and SSYLKA_DOC not in (Select SSYLKA from TRANSFORM_PAYORDERS_NPO where FLAG_USAGE=2)
-    ) poc       
-    inner join fnd.REER_DOC_NGPF rd on rd.SSYLKA=poc.SSYLKA_DOC  -- 3.866
-    left join TRANSFORM_PAYORDERS_NPO hpo on hpo.PAYMENT_PERIOD=trunc(poc.DATA_OP,'MON') and FLAG_USAGE=1 and POLOVINA=1    
-order by rd.SSYLKA, hpo.SSYLKA;     
+insert into transform_payorders_lnk
+  (order_fndssylka,
+   order_gfdocid,
+   pocard_fndssylka,
+   pocard_gfdocid)
+  select hpo.ssylka,
+         hpo.ref_kodinsz,
+         rd.ssylka,
+         rd.ref_kodinsz
+  from   (select distinct ssylka_doc,
+                          data_op
+          from   fnd.vypl_pen
+          where  nom_vkl <> 1001
+          and    data_op < to_date('01.04.1998', 'dd.mm.yyyy')
+          and    ssylka_doc not in (select ssylka
+                                    from   transform_payorders_npo
+                                    where  flag_usage = 2)) poc
+  inner  join fnd.reer_doc_ngpf rd
+  on     rd.ssylka = poc.ssylka_doc -- 3.866
+  left   join transform_payorders_npo hpo
+  on     hpo.payment_period = trunc(poc.data_op, 'MON')
+  and    flag_usage = 1
+  and    polovina = 1
+  order  by rd.ssylka,
+            hpo.ssylka;
 
 Commit;   
 

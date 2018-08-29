@@ -7,7 +7,7 @@ drop index ASGMT_ISAUTO_IDX;
 drop index ASGMT_ISCANCEL_IDX;
 drop index ASMGT_ISEXISTS_IDX;
 drop index ASGMT_STATE_IDX;
-create index ASGMT_STATE_IDX on assignments(case ASGMT_STATE when 1 then null else ASGMT_STATE end);
+create index ASGMT_STATE_IDX on assignments(case ASGMT_STATE when 1 then null else ASGMT_STATE end) tablespace GFNDINDX;
 alter table DEBT_WITHHOLDINGS add constraint DEBT_WH_ASSIGNMENT_FK foreign key (fk_debt_assignment) references assignments(id);
 delete from pay_orders;
 commit;
@@ -17,3 +17,4 @@ from   user_constraints d
 where  d.r_owner = 'GAZFOND_PN'
 and    d.r_constraint_name = 'ASSIGNMENT_PK'
 and    d.
+/
