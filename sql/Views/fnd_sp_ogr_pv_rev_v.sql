@@ -22,7 +22,6 @@ create or replace view sp_ogr_pv_rev_v as
          op.nach_deistv real_nach_deistv,
          op.okon_deistv real_okon_deistv
   from   sp_ogr_pv_v      op
-  where  1=1
 /
 grant select on sp_ogr_pv_rev_v to gazfond
 /

@@ -43,10 +43,11 @@ create table transform_pa_restrictions(
   fnd_okon_deistv        date                 ,
   fk_pay_restriction     number(10),
   is_cancel              varchar2(1),
-  constraint transform_pa_rest_pk 
-    primary key (import_id, ssylka, kod_ogr_pv, nach_deistv, fk_contract)
-    using index tablespace GFNDINDX
+  cnt                    number(2),
+  rn                     number(2)
 )
+/
+create index transform_pa_rest_ux on transform_pa_restrictions(import_id, ssylka, kod_ogr_pv, nach_deistv, fk_contract) tablespace GFNDINDX
 /
 create table transform_pa_accounts(
   account_type           varchar2(2), --Cr/Db

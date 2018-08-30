@@ -1056,46 +1056,80 @@ create or replace package body import_assignments_pkg is
   ) is
   begin
     
-    insert into transform_pa_restrictions(
-      import_id, 
-      ssylka, 
-      fk_contragent, 
-      fk_contract, 
-      kod_ogr_pv, 
-      primech,
-      nach_deistv,
-      okon_deistv,
-      fnd_nach_deistv,
-      fnd_okon_deistv,
-      fk_pay_restriction,
-      is_cancel
-    ) select p_import_id,
-             op.ssylka_fl,
-             tc.fk_contragent,
-             pa.fk_contract,
-             op.kod_ogr_pv,
-             op.primech,
-             op.nach_deistv,
-             op.okon_deistv,
-             op.real_nach_deistv,
-             op.real_okon_deistv,
-             (select pr.id --специально оставил подзапрос, чтобы при задвоении поднимало ошибку
-              from   pay_restrictions pr
-              where  pr.fk_doc_with_acct = pa.fk_contract
-              and    pr.effective_date = op.nach_deistv
-             ) fk_pay_restriction,
-             op.is_cancel
-      from   fnd.sp_ogr_pv_imp_v   op,
-             transform_contragents tc,
-             pension_agreements    pa
-      where  1 = 1
-      and    pa.effective_date = op.data_nach_vypl
-      and    pa.fk_base_contract = tc.fk_contract
-      and    tc.ssylka_fl = op.ssylka_fl
-      and    op.nach_deistv < to_date(20500101, 'yyyymmdd')
-      and    op.cnt = op.rn;
+    merge into transform_pa_restrictions tpr
+    using (select op.ssylka_fl,
+                  tc.fk_contragent,
+                  pa.fk_contract,
+                  op.kod_ogr_pv,
+                  op.primech,
+                  op.nach_deistv,
+                  op.okon_deistv,
+                  op.real_nach_deistv,
+                  op.real_okon_deistv,
+                  (select pr.id --специально оставил подзапрос, чтобы при задвоении поднимало ошибку
+                   from   pay_restrictions pr
+                   where  pr.fk_doc_with_acct = pa.fk_contract
+                   and    pr.effective_date = op.nach_deistv
+                   and    case 
+                            when op.kod_ogr_pv not in (3,6) then 1
+                            when op.kod_ogr_pv = 3 and pr.remarks like 'Справка МСЭ%' then 1
+                            when op.kod_ogr_pv = 6 and pr.remarks not like 'Справка МСЭ%'  then 1
+                            else 0
+                          end = 1
+                  ) fk_pay_restriction,
+                  case when op.rn < op.cnt then 'Y' else op.is_cancel end is_cancel,
+                  op.cnt,
+                  op.rn
+           from   fnd.sp_ogr_pv_imp_v   op,
+                  transform_contragents tc,
+                  pension_agreements    pa
+           where  1 = 1
+           and    pa.effective_date(+) = op.data_nach_vypl
+           and    pa.fk_base_contract(+) = tc.fk_contract
+           and    tc.ssylka_fl(+) = op.ssylka_fl
+           and    op.nach_deistv < to_date(20500101, 'yyyymmdd')
+          ) u
+    on    (tpr.ssylka = u.ssylka_fl and tpr.kod_ogr_pv = u.kod_ogr_pv and tpr.nach_deistv = u. nach_deistv and tpr.fk_contragent = u.fk_contragent and tpr.rn = u.rn)
+    when matched then
+      update set
+        tpr.okon_deistv = u.okon_deistv,
+        tpr.is_cancel = u.is_cancel,
+        tpr.cnt = u.cnt,
+        tpr.import_id = p_import_id
+    when not matched then
+      insert(
+        import_id, 
+        ssylka, 
+        fk_contragent, 
+        fk_contract, 
+        kod_ogr_pv, 
+        primech,
+        nach_deistv,
+        okon_deistv,
+        fnd_nach_deistv,
+        fnd_okon_deistv,
+        fk_pay_restriction,
+        is_cancel,
+        cnt,
+        rn
+      ) values (
+        p_import_id,
+        u.ssylka_fl,
+        u.fk_contragent,
+        u.fk_contract,
+        u.kod_ogr_pv,
+        u.primech,
+        u.nach_deistv,
+        u.okon_deistv,
+        u.real_nach_deistv,
+        u.real_okon_deistv,
+        u.fk_pay_restriction,
+        u.is_cancel,
+        u.cnt,
+        u.rn
+      );
 
-    put('insert_transform_rest: добавлено строк: ' || sql%rowcount);
+    put('insert_transform_rest: обработано строк: ' || sql%rowcount);
     
   exception
     when others then
@@ -1104,7 +1138,7 @@ create or replace package body import_assignments_pkg is
   end insert_transform_rest;
   
   /**
-   * Процедура заполняет создает ограничения PAY_RESTRICTIONS
+   * Процедура создает ограничения PAY_RESTRICTIONS
    */
   procedure create_pay_restrictions(
     p_import_id varchar2,
@@ -1135,6 +1169,7 @@ create or replace package body import_assignments_pkg is
              sysdate
       from   transform_pa_restrictions tpr
       where  1=1
+      and    tpr.cnt = tpr.rn
       and    tpr.fk_pay_restriction is null
       and    tpr.import_id = p_import_id
     log errors into ERR$_IMP_PAY_RESTRICTIONS (p_err_tag) reject limit unlimited;
@@ -1152,6 +1187,7 @@ create or replace package body import_assignments_pkg is
              and    pr.fk_doc_with_acct = tpr.fk_contract
            )
     where  tpr.import_id = p_import_id
+    and    tpr.cnt = tpr.rn
     and    tpr.fk_pay_restriction is null;
     
     update pay_restrictions pr
@@ -1171,7 +1207,7 @@ create or replace package body import_assignments_pkg is
   end create_pay_restrictions;
   
   /**
-   * Процедура заполняет создает ограничения PAY_RESTRICTIONS
+   * Процедура заполняет ограничения PAY_RESTRICTIONS
    */
   procedure update_pay_restrictions(
     p_import_id varchar2,

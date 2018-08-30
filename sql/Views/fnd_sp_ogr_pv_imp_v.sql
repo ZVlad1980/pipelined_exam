@@ -28,7 +28,13 @@ create or replace view sp_ogr_pv_imp_v as
            else 'N'
          end is_cancel,
          count(1)over(partition by op.ssylka_fl, pd.data_nach_vypl, op.nach_deistv) cnt,
-         row_number()over(partition by op.ssylka_fl, pd.data_nach_vypl, op.nach_deistv order by op.kod_ogr_pv, op.real_nach_deistv, case op.source_table when 'SP_OGR_PV' then 2 else 1 end) rn
+         row_number()over(
+           partition by op.ssylka_fl, pd.data_nach_vypl, op.nach_deistv 
+           order by case op.source_table when 'SP_OGR_PV' then 2 else 1 end, --активные в конце
+                    op.nach_deistv - coalesce(op.okon_deistv, to_date(99991231, 'yyyymmdd')), --по периоду действия
+                    op.kod_ogr_pv, --для стабилизации результата
+                    op.real_nach_deistv
+         ) rn
   from   sp_ogr_pv_rev_v  op,
          sp_pen_dog_imp_v pd
   where  1=1
@@ -41,7 +47,7 @@ create or replace view sp_ogr_pv_imp_v as
   and    (
           (op.kod_ogr_pv <> 3)
           or
-          (op.kod_ogr_pv = 3 and  op.real_okon_deistv is not null)
+          (op.kod_ogr_pv = 3 and  (op.real_okon_deistv is not null or op.source_table = 'SP_OGR_PV_ARH'))
          )
 /
 grant select on sp_ogr_pv_imp_v to gazfond
