@@ -1,7 +1,7 @@
 create or replace view pension_agreement_addendums_v as 
   select   paa.fk_pension_agreement,
            paa.from_date,
-           max(greatest(trunc(paa.end_date, 'MM') - 1, last_day(paa.from_date))) end_date,
+           max(greatest(case when paa.end_date <> last_day(paa.end_date) then trunc(paa.end_date, 'MM') - 1 else paa.end_date end, last_day(paa.from_date))) end_date,
            round(sum(
              case
                when paa.month_serialno = 1 and paa.from_date <> paa.alt_date_begin and paa.amount_prev is not null then

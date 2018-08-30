@@ -1,4 +1,4 @@
-select count(1) from   (
+--select count(1) from   (
 select spd.ssylka,
        cn.fk_document fk_contract,
        sfl.gf_person,
@@ -33,7 +33,7 @@ and    cn.fk_cntr_type = 6
 and    cn.fk_document = spd.ref_kodinsz
 and    sfl.ssylka = spd.ssylka
 --and    cn.fk_document = 11661564
-) --d where d.add_cnt > 2
+--) --d where d.add_cnt > 2
 
 /*
 select *

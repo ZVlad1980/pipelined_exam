@@ -1,14 +1,19 @@
 create or replace package body assignments_api is
   
-  GC_UNIT_NAME   constant varchar2(32) := $$PLSQL_UNIT;
+  GC_UNIT_NAME       constant varchar2(32) := $$PLSQL_UNIT;
   
   GC_ASG_CHUNK_SIZE  constant number := 10000;
+  
+  g_error_tag        varchar2(2000) := GC_UNIT_NAME;
   
   type g_assignments_typ is table of assignments%rowtype;
   g_assignments g_assignments_typ;
   
-  procedure init is
+  procedure init(
+    p_err_tag varchar2 default null
+  ) is
   begin
+    g_error_tag := nvl(p_err_tag, GC_UNIT_NAME);
     g_assignments := g_assignments_typ();
   end init;
   
@@ -73,7 +78,7 @@ create or replace package body assignments_api is
         g_assignments(i).creation_date,
         g_assignments(i).fk_registry,
         g_assignments(i).direction
-      ) log errors into err$_assignments (GC_UNIT_NAME) reject limit unlimited;
+      ) log errors into err$_assignments (g_error_tag) reject limit unlimited;
   /*exception
     when others then
       fix_exception($$PLSQL_LINE, 'flush_assignments failed');
