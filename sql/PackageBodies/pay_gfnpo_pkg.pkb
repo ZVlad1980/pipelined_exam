@@ -286,7 +286,12 @@ select /*parallel(' || p_parallel || ') */ pa.fk_contract,
        pa.expiration_date,
        m.paydate,
        paa.amount charge_amount,
-       last_day(least(pa.last_pay_date, :2)) last_pay_date
+       last_day(least(pa.last_pay_date, case pa.period_code 
+             when 1 then :3
+             when 3 then :4
+             when 6 then :5
+             when 12 then :6
+           end)) last_pay_date
 from   pension_agreements_charge_v   pa,
        w_months                      m,
        lateral(
@@ -313,21 +318,29 @@ and    not exists (
                  nvl(pr.expiration_date, m.paydate)
           and    pr.fk_doc_with_acct = pa.fk_contract
        )
-and    m.paydate between trunc(pa.effective_date, ''MM'') and trunc(least(pa.last_pay_date, :3), ''MM'')
-and    pa.effective_date <= :4' || chr(10) ||
+and    m.paydate between trunc(pa.effective_date, ''MM'') and 
+         least(pa.last_pay_date, 
+           case pa.period_code 
+             when 1 then :7
+             when 3 then :8
+             when 6 then :9
+             when 12 then :10
+           end
+         )
+and    pa.effective_date <= :11' || chr(10) ||
     case
       when p_filter_contract = 'Y' then
         'and pa.fk_contract in (
            select pof.filter_value
            from   pay_order_filters pof
-           where  pof.filter_code = :5
-           and    pof.fk_pay_order = :6)'
+           where  pof.filter_code = :12
+           and    pof.fk_pay_order = :13)'
       when p_filter_company  = 'Y' then
         'and co.fk_company in (
            select pof.filter_value
            from   pay_order_filters pof
-           where  pof.filter_code = :5
-           and    pof.fk_pay_order = :6)'
+           where  pof.filter_code = :12
+           and    pof.fk_pay_order = :13)'
     end || chr(10) || 
     case
       when p_contract_type = GC_CT_LIFE then
@@ -341,20 +354,32 @@ and    pa.effective_date <= :4' || chr(10) ||
     
     if p_filter_contract = 'Y' or p_filter_company = 'Y' then
       open l_result for l_request 
-        using GC_BASE_DATE,
-              months_between(p_pay_order.payment_period, GC_BASE_DATE) + 2,
-              p_pay_order.last_day_month, 
-              p_pay_order.last_day_month,
-              p_pay_order.last_day_month,
-              case when p_filter_contract = 'Y' then GC_POFLTR_CONTRACT when p_filter_company = 'Y' then GC_POFLTR_COMPANY end,
-              p_pay_order.pay_order_id;
+        using GC_BASE_DATE, --1
+              months_between(p_pay_order.last_day_year, GC_BASE_DATE) + 2, --2
+              p_pay_order.last_day_month,   --3 
+              p_pay_order.last_day_quarter, --4
+              p_pay_order.last_day_halfyear,--5
+              p_pay_order.last_day_year,    --6
+              p_pay_order.last_day_month,   --7
+              p_pay_order.last_day_quarter, --8
+              p_pay_order.last_day_halfyear,--9
+              p_pay_order.last_day_year,    --10
+              p_pay_order.last_day_month,   --11
+              case when p_filter_contract = 'Y' then GC_POFLTR_CONTRACT when p_filter_company = 'Y' then GC_POFLTR_COMPANY end, --12
+              p_pay_order.pay_order_id;     --13
     else
       open l_result for l_request 
-        using GC_BASE_DATE,
-              months_between(p_pay_order.payment_period, GC_BASE_DATE) + 2,
-              p_pay_order.last_day_month, 
-              p_pay_order.last_day_month,
-              p_pay_order.last_day_month;
+        using GC_BASE_DATE, --1
+              months_between(p_pay_order.last_day_year, GC_BASE_DATE) + 2, --2
+              p_pay_order.last_day_month,   --3
+              p_pay_order.last_day_quarter, --4
+              p_pay_order.last_day_halfyear,--5
+              p_pay_order.last_day_year,    --6
+              p_pay_order.last_day_month,   --7
+              p_pay_order.last_day_quarter, --8
+              p_pay_order.last_day_halfyear,--9
+              p_pay_order.last_day_year,    --10
+              p_pay_order.last_day_month;   --11
     end if;
     
     return l_result;

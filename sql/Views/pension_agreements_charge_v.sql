@@ -29,4 +29,3 @@ create or replace view pension_agreements_charge_v as
   and    pa.state = 1
   and    pa.isarhv = 0
 /
---pension_agreements_v
