@@ -23,7 +23,7 @@ create or replace view pension_agreements_charge_v as
              'Y'
            else
              'N'
-         end first_pay
+         end is_first_pay
   from   pension_agreements_v pa
   where  1 = 1
   and    pa.state = 1

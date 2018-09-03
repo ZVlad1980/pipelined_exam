@@ -27,8 +27,8 @@ create or replace view pension_agreements_v as
          contracts          bcn,
          people             p
   where  1 = 1
-  and    bcn.fk_document = pa.fk_base_contract
   and    p.fk_contragent = bcn.fk_contragent
+  and    bcn.fk_document = pa.fk_base_contract
   and    pa.fk_contract = cn.fk_document
   and    cn.fk_scheme in (1, 2, 3, 4, 5, 6, 8)
   and    cn.fk_cntr_type = 6

@@ -10,7 +10,7 @@ create or replace package body pay_gfnpo_pkg is
   GC_ST_SUCCESS  constant number := 0;
   GC_ST_ERROR    constant number := 3;
   
-  GC_BASE_DATE constant date := to_date(19950101, 'yyyymmdd'); --базовая дата начала выплат
+  GC_DEPTH_RECALC constant number := 287; --период проверки начислений в месяцах (от декабря текущего года)
   
   GC_LM_ASSIGNMENTS  constant number := 1;
   
@@ -260,7 +260,7 @@ create or replace package body pay_gfnpo_pkg is
   /**
    *
    */
-  function get_agreements_cur(
+  function get_assignments_cur(
     p_pay_order        g_pay_order_typ,
     p_contract_type    varchar2,
     p_filter_company   varchar2,
@@ -271,133 +271,190 @@ create or replace package body pay_gfnpo_pkg is
     l_request varchar2(32767);
   begin
     
-    l_request := 'with w_months as (
-  select /*+ materialize*/ add_months(:0, level - 1) paydate
-  from   dual
-  connect by level < :1
+    l_request := 'with w_pay_order as ( --обрабатываемый pay_order
+  select /*+ materialize*/
+         po.fk_document,
+         po.start_month, 
+         po.end_month, 
+         po.start_quarter, 
+         po.end_quarter, 
+         po.start_halfyear,
+         po.end_half_year, 
+         po.start_year, 
+         po.end_year
+  from   pay_orders_charge_v po
+  where  po.fk_document = :fk_pay_order
+),
+w_months as ( --список обрабатываемых месяцев
+  select /*+ materialize*/
+         m.month_date,
+         last_day(m.month_date) end_month_date
+  from   w_pay_order po,
+         lateral(
+              select add_months(trunc(po.end_year, ''MM''), -1 * (level - 1)) month_date
+              from   dual
+              connect by level < :depth_months + 1
+         ) m
 )
-select /*parallel(' || p_parallel || ') */ pa.fk_contract,
-       coalesce(paa.fk_provacct, pa.fk_debit) fk_debit,
+select /*+ parallel(' || to_char(p_parallel) || ') */
+       pa.fk_contract,
+       coalesce(
+         --to_number(substr(pa.paa_info, 1, instr(pa.paa_info, ''#'') - 1)),
+         pa.fk_provacct,
+         pa.fk_debit
+       ) fk_debit,
        pa.fk_credit,
        pa.fk_company,
        pa.fk_scheme,
        pa.fk_contragent,
-       pa.effective_date,
-       pa.expiration_date,
-       m.paydate,
-       paa.amount charge_amount,
-       last_day(least(pa.last_pay_date, case pa.period_code 
-             when 1 then :3
-             when 3 then :4
-             when 6 then :5
-             when 12 then :6
-           end)) last_pay_date
-from   pension_agreements_charge_v   pa,
-       w_months                      m,
-       lateral(
-         select paa.fk_provacct, case when m.paydate = paa.from_date then paa.first_amount else paa.amount end amount
-         from   pension_agreement_addendums_v paa
-         where  1=1
-         and    m.paydate between paa.from_date and paa.end_date
-         and    paa.fk_pension_agreement = pa.fk_contract
-       ) paa
-where  1 = 1
-and    not exists (
-         select 1
-         from   assignments a
-         where  trunc(a.paydate, ''MM'') = m.paydate
-         and    a.fk_paycode = ' || GC_ASG_PAY_CODE || '
-         and    a.fk_asgmt_type = 2
-         and    a.fk_credit = pa.fk_credit
-       )
-and    not exists (
-          select 1
-          from   pay_restrictions pr
-          where  pr.fk_document_cancel is null
-          and    m.paydate between pr.effective_date and
-                 nvl(pr.expiration_date, m.paydate)
-          and    pr.fk_doc_with_acct = pa.fk_contract
-       )
-and    m.paydate between trunc(pa.effective_date, ''MM'') and 
-         least(pa.last_pay_date, 
-           case pa.period_code 
-             when 1 then :7
-             when 3 then :8
-             when 6 then :9
-             when 12 then :10
-           end
-         )
-and    pa.effective_date <= :11' || chr(10) ||
-    case
-      when p_filter_contract = 'Y' then
-        'and pa.fk_contract in (
-           select pof.filter_value
-           from   pay_order_filters pof
-           where  pof.filter_code = :12
-           and    pof.fk_pay_order = :13)'
-      when p_filter_company  = 'Y' then
-        'and co.fk_company in (
-           select pof.filter_value
-           from   pay_order_filters pof
-           where  pof.filter_code = :12
-           and    pof.fk_pay_order = :13)'
-    end || chr(10) || 
-    case
-      when p_contract_type = GC_CT_LIFE then
-        'and pa.expiration_date is null'
-      when p_contract_type = GC_CT_TERM then
-        'and pa.expiration_date is not null'
-    end
+       pa.month_date paydate,
+       --to_number(substr(pa.paa_info, instr(pa.paa_info, ''#'') + 1)) amount,
+       pa.amount,
+       trunc(least(pa.last_pay_date, pa.end_month_date)) - trunc(greatest(pa.month_date, pa.effective_date)) + 1 paydays
+from   (
+        select pa.fk_contract,
+               pa.fk_debit,
+               pa.fk_credit,
+               pa.fk_company,
+               pa.fk_scheme,
+               pa.fk_contragent,
+               pa.effective_date,
+               pa.expiration_date,
+               m.month_date,
+               m.end_month_date,
+               /*(select to_char(paa.fk_provacct) || ''#'' ||
+                         to_char(case when m.month_date = paa.from_date then paa.first_amount else paa.amount end) paa_info
+                from   pension_agreement_addendums_v paa
+                where  m.month_date between paa.from_date and paa.end_date
+                and    paa.fk_pension_agreement = pa.fk_contract
+               ) paa_info,*/
+               paa.fk_provacct,
+               case when m.month_date = paa.from_date then paa.first_amount else paa.amount end amount,
+               last_day(least(pa.last_pay_date, case pa.period_code 
+                     when 1 then po.end_month
+                     when 3 then po.end_quarter
+                     when 6 then po.end_half_year
+                     when 12 then po.end_year
+                   end)) last_pay_date,
+               period_code
+        from   w_pay_order                   po,
+               pension_agreements_charge_v   pa,
+               w_months                      m,
+               pension_agreement_addendums_v paa
+        where  1 = 1
+        and    m.month_date between paa.from_date and paa.end_date
+        and    paa.fk_pension_agreement = pa.fk_contract
+        and    not exists (
+                 select 1
+                 from   assignments a
+                 where  1=1
+                 and    a.fk_paycode = ' || GC_ASG_PAY_CODE || '
+                 and    a.fk_doc_with_acct = pa.fk_contract
+                 and    a.paydate between m.month_date and m.end_month_date 
+                 and    a.fk_asgmt_type = 2
+               )
+        and    not exists (
+                  select 1
+                  from   pay_restrictions pr
+                  where  pr.fk_document_cancel is null
+                  and    m.month_date between pr.effective_date and nvl(pr.expiration_date, m.month_date)
+                  and    pr.fk_doc_with_acct = pa.fk_contract
+               )
+        and    m.month_date between trunc(pa.effective_date, ''MM'') and 
+                 least(pa.last_pay_date, 
+                   case pa.period_code 
+                     when 1 then po.end_month
+                     when 3 then po.end_quarter
+                     when 6 then po.end_half_year
+                     when 12 then po.end_year
+                   end
+                 )
+        and    pa.effective_date <= po.end_month' || 
+          case
+            when p_filter_contract = 'Y' then
+              chr(10) ||
+              'and pa.fk_contract in (
+                 select pof.filter_value
+                 from   pay_order_filters pof
+                 where  pof.filter_code = :3
+                 and    pof.fk_pay_order = po.fk_document)'
+            when p_filter_company  = 'Y' then
+              chr(10) ||
+              'and pa.fk_company in (
+                 select pof.filter_value
+                 from   pay_order_filters pof
+                 where  pof.filter_code = :3
+                 and    pof.fk_pay_order = po.fk_document)'
+          end || 
+          case
+            when p_contract_type = GC_CT_LIFE then
+              chr(10) || 'and pa.expiration_date is null'
+            when p_contract_type = GC_CT_TERM then
+              chr(10) || 'and pa.expiration_date is not null'
+          end
+       || chr(10) ||') pa'
     ;
     --
     put_line(l_request);
     
     if p_filter_contract = 'Y' or p_filter_company = 'Y' then
       open l_result for l_request 
-        using GC_BASE_DATE, --1
-              months_between(p_pay_order.last_day_year, GC_BASE_DATE) + 2, --2
-              p_pay_order.last_day_month,   --3 
-              p_pay_order.last_day_quarter, --4
-              p_pay_order.last_day_halfyear,--5
-              p_pay_order.last_day_year,    --6
-              p_pay_order.last_day_month,   --7
-              p_pay_order.last_day_quarter, --8
-              p_pay_order.last_day_halfyear,--9
-              p_pay_order.last_day_year,    --10
-              p_pay_order.last_day_month,   --11
-              case when p_filter_contract = 'Y' then GC_POFLTR_CONTRACT when p_filter_company = 'Y' then GC_POFLTR_COMPANY end, --12
-              p_pay_order.pay_order_id;     --13
+        using p_pay_order.pay_order_id,
+              GC_DEPTH_RECALC,
+              case when p_filter_contract = 'Y' then GC_POFLTR_CONTRACT when p_filter_company = 'Y' then GC_POFLTR_COMPANY end
+       ;
     else
       open l_result for l_request 
-        using GC_BASE_DATE, --1
-              months_between(p_pay_order.last_day_year, GC_BASE_DATE) + 2, --2
-              p_pay_order.last_day_month,   --3
-              p_pay_order.last_day_quarter, --4
-              p_pay_order.last_day_halfyear,--5
-              p_pay_order.last_day_year,    --6
-              p_pay_order.last_day_month,   --7
-              p_pay_order.last_day_quarter, --8
-              p_pay_order.last_day_halfyear,--9
-              p_pay_order.last_day_year,    --10
-              p_pay_order.last_day_month;   --11
+        using p_pay_order.pay_order_id,
+              GC_DEPTH_RECALC
+      ;
     end if;
     
     return l_result;
   exception
     when others then
-      fix_exception($$PLSQL_LINE, 'get_agreements_cur(' || p_pay_order.pay_order_id || ', ' || p_contract_type || ', ' || p_filter_company || ', ' || p_filter_contract || ') failed');
+      fix_exception($$PLSQL_LINE, 'get_assignments_cur(' || p_pay_order.pay_order_id || ', ' || p_contract_type || ', ' || p_filter_company || ', ' || p_filter_contract || ') failed');
       raise;
-  end get_agreements_cur;
+  end get_assignments_cur;
   
+  function get_assignments_calc(
+    p_cursor sys_refcursor
+  ) return assignments_tbl_typ
+    pipelined
+    parallel_enable(partition p_cursor by any)
+  is
+    l_rec        assignment_rec_typ;
+  begin
+    l_rec := assignment_rec_typ();
+    loop
+      fetch p_cursor 
+        into l_rec.fk_contract  ,
+             l_rec.fk_debit     ,
+             l_rec.fk_credit    ,
+             l_rec.fk_company   ,
+             l_rec.fk_scheme    ,
+             l_rec.fk_contragent,
+             l_rec.paydate      ,
+             l_rec.amount       ,
+             l_rec.paydays      
+        ;
+      exit when p_cursor%notfound;
+      if l_rec.fk_debit is null and l_rec.fk_scheme in (1, 5, 6) then
+        l_rec.fk_debit := g_acct_sspv_tbl(l_rec.fk_scheme);
+      end if;
+      pipe row(l_rec);
+    end loop;
+    
+  end get_assignments_calc;
   /**
    *
    */
-  procedure fill_charges_pension(
+  procedure calc_assignments(
     p_pay_order        g_pay_order_typ,
     p_agreements_cur   sys_refcursor,
-    p_err_tag          varchar2
+    p_error_tag          varchar2
   ) is
-    type l_agreements_typ is record (
+    /*type l_agreements_typ is record (
       fk_contract           pension_agreements.fk_contract%type,
       fk_debit              contracts.fk_account%type,
       fk_credit             contracts.fk_account%type,
@@ -408,14 +465,48 @@ and    pa.effective_date <= :11' || chr(10) ||
       expiration_date       pension_agreements.expiration_date%type,
       paydate               date,
       amount                number,
-      last_pay_date         date
+      paydays               number
     );
     
-    l_agreement l_agreements_typ;
-    l_assignment  assignments%rowtype;
+    l_agreement   l_agreements_typ;
+    l_assignment  assignments%rowtype;*/
    
   begin
-    --dbms_output.put_line('Процедура fill_charges_pension отключена');    return;
+    --put_line('calc_assignments: Расчет начислений отключен');    return;
+    
+    insert into assignments(
+      id,
+      fk_doc_with_action,
+      fk_doc_with_acct,
+      fk_debit,
+      fk_credit,
+      fk_asgmt_type,
+      fk_contragent,
+      paydate,
+      amount,
+      fk_paycode,
+      paydays,
+      fk_scheme,
+      serv_doc
+    ) select assignment_seq.nextval,
+             p_pay_order.pay_order_id,
+             t.fk_contract,
+             t.fk_debit,
+             t.fk_credit,
+             GC_ASG_OP_TYPE,  -- код "начисление пенсии"
+             t.fk_contragent,
+             t.paydate,
+             t.amount,
+             GC_ASG_PAY_CODE, -- тип начисляемой пенсии (пожизненная/срочная)
+             t.paydays,
+             t.fk_scheme,
+             t.fk_contract
+      from   table(pay_gfnpo_pkg.get_assignments_calc(p_agreements_cur)) t
+    log errors into err$_assignments (p_error_tag) reject limit unlimited;
+    
+    close p_agreements_cur;
+    
+    /*
     assignments_api.init(p_err_tag => p_err_tag);
   
     l_assignment.fk_doc_with_action := p_pay_order.pay_order_id;
@@ -434,9 +525,7 @@ and    pa.effective_date <= :11' || chr(10) ||
       l_assignment.fk_scheme        := l_agreement.fk_scheme;
       l_assignment.fk_contragent    := l_agreement.fk_contragent;
       l_assignment.paydate          := l_agreement.paydate;
-      l_assignment.paydays          := 
-        least(last_day(l_agreement.paydate), l_agreement.last_pay_date) - 
-        greatest(trunc(l_assignment.paydate, 'MM'), l_agreement.effective_date) + 1;
+      l_assignment.paydays          := l_agreement.paydays;
       l_assignment.amount           := l_agreement.amount;
       --l_assignment.comments         := 'Начисление пенсии. ОПС Пожизненная выплата.';
       
@@ -455,16 +544,16 @@ and    pa.effective_date <= :11' || chr(10) ||
     close p_agreements_cur;
     --
     assignments_api.flush;
-    --
+    --*/
   exception
     when others then
       if p_agreements_cur%isopen then
         close p_agreements_cur;
       end if;
       --
-      fix_exception($$PLSQL_LINE, 'fill_charges_pension(' || p_pay_order.pay_order_id || ') failed');
+      fix_exception($$PLSQL_LINE, 'calc_assignments(' || p_pay_order.pay_order_id || ') failed');
       raise;
-  end fill_charges_pension;
+  end calc_assignments;
   
   /**
    *
@@ -556,9 +645,9 @@ and    pa.effective_date <= :11' || chr(10) ||
     --
     if l_pay_order.fk_pay_order_type = 5 then
       if to_number(substr(l_pay_order.payment_freqmask, 7, 2)) > 0 then
-        fill_charges_pension(
+        calc_assignments(
           p_pay_order       => l_pay_order,
-          p_agreements_cur  => get_agreements_cur(
+          p_agreements_cur  => get_assignments_cur(
             p_pay_order       => l_pay_order,
             p_contract_type   => case to_number(substr(l_pay_order.payment_freqmask, 7, 2)) 
                                    when 11 then null 
@@ -568,7 +657,7 @@ and    pa.effective_date <= :11' || chr(10) ||
             p_filter_contract => is_exists_filter_(l_pay_order.pay_order_id, GC_POFLTR_CONTRACT),
             p_parallel        => p_parallel
           ),
-          p_err_tag           => l_err_tag
+          p_error_tag         => l_err_tag
         );
       end if;
     else
@@ -577,6 +666,8 @@ and    pa.effective_date <= :11' || chr(10) ||
     end if;
     --
     show_charges_results(l_pay_order.pay_order_id, l_err_tag);
+    --
+    commit;
     --
     return GC_ST_SUCCESS;
     --
@@ -592,100 +683,6 @@ and    pa.effective_date <= :11' || chr(10) ||
       return GC_ST_ERROR;
       
   end fill_charges_by_pay_order;
-  
-  
-  
-  procedure fill_charges_by_agr_range(
-    p_start_id number,
-    p_end_id   number
-  ) is
-    l_start_time number;
-    l_cnt        number;
-    cursor l_asg_cur is
-      with w_months(paydate) as (
-        select /*+ materialize*/ add_months(to_date(/*19950101*/20160101, 'yyyymmdd'), level - 1) paydate
-        from   dual
-        connect by level < 36--284
-      )
-      select pa.fk_contract,
-             pa.period_code,
-             pa.fk_debit,
-             pa.fk_credit,
-             pa.fk_scheme,
-             pa.fk_contragent,
-             pa.effective_date,
-             pa.last_pay_date,
-             m.paydate,
-             (select to_char(
-                       case
-                         when m.paydate = paa.from_date then
-                          paa.first_amount
-                         else
-                          paa.amount
-                       end
-                     ) || '#' || to_char(paa.fk_provacct) addendums_info
-              from   pension_agreement_addendums_v paa
-              where  1 = 1
-              and    m.paydate between paa.from_date and paa.end_date
-              and    paa.fk_pension_agreement = pa.fk_contract
-             ) addendums_info
-      from   AGREEMENTS_LIST_T pa,
-             w_months     m
-      where  1=1
-      and    not exists(
-               select 1
-               from   assignments a
-               where  trunc(a.paydate, 'MM') = m.paydate
-               and    a.fk_paycode = 5000
-               and    a.fk_asgmt_type = 2
-               and    a.fk_credit = pa.fk_credit
-             )
-      and    not exists(
-               select 1
-               from   pay_restrictions pr
-               where  pr.fk_document_cancel is null
-               and    m.paydate between pr.effective_date and nvl(pr.expiration_date, m.paydate)
-               and    pr.fk_doc_with_acct = pa.fk_contract
-             )
-      and    m.paydate between trunc(pa.effective_date, 'MM') and pa.last_pay_date
-      and    pa.id between p_start_id and p_end_id;
-    
-    procedure process_(p_row in out nocopy l_asg_cur%rowtype) is
-      l_asg_row l_asg_cur%rowtype;
-      l_amount  number;
-      l_acct    number;
-      l_pos      number;
-    begin
-      
-      l_asg_row := p_row;
-      l_pos     := instr(l_asg_row.addendums_info, '#');
-      l_amount  := to_number(substr(p_row.addendums_info, 1, l_pos - 1));
-      l_acct    := to_number(substr(p_row.addendums_info, l_pos + 1));
-    end;
-  begin
-    l_start_time := dbms_utility.get_time;
-    l_cnt := 0;
-    for asg in l_asg_cur loop
-      process_(asg);
-      l_cnt := l_cnt + 1;
-    end loop;
-    
-    l_start_time := dbms_utility.get_time - l_start_time;
-    
-    insert into pay_gfnpo_logs(
-      start_id,
-      end_id,
-      rows_cnt,
-      duration,
-      session_id
-    ) values (
-      p_start_id,
-      p_end_id,
-      l_cnt,
-      l_start_time / 100,
-      SYS_CONTEXT('USERENV', 'SESSIONID')
-    );
-  end fill_charges_by_agr_range;
   
 end pay_gfnpo_pkg;
 /
