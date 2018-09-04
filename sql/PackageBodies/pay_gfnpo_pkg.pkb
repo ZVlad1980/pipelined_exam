@@ -2,11 +2,6 @@ create or replace package body pay_gfnpo_pkg is
   
   GC_UNIT_NAME   constant varchar2(32) := $$PLSQL_UNIT;
   
-  GC_RM_DEBUG    constant varchar2(1) := 'D';
-  --GC_RM_NORMAL   constant varchar2(1) := 'N';
-  
-  GC_RUN_MODE    constant varchar2(1)  := GC_RM_DEBUG;
-  
   GC_ST_SUCCESS  constant number := 0;
   GC_ST_ERROR    constant number := 3;
   
@@ -61,35 +56,46 @@ create or replace package body pay_gfnpo_pkg is
   type g_acct_sspv_tbl_typ is table of number index by pls_integer;
   g_acct_sspv_tbl g_acct_sspv_tbl_typ;
   
-  type g_error_typ is record (
-    error_msg         varchar2(4000),
-    critical          boolean,
-    error_stack       varchar2(2000),
-    error_backtrace   varchar2(2000),
-    call_stack        varchar2(2000)
-  );
-  type g_errors_typ is table of g_error_typ index by pls_integer;
+  procedure init_exception(
+    p_log_mark  number,
+    p_log_token number default null
+  ) is
+  begin 
+    log_pkg.init_exception;
+    G_LOG_MARK  := p_log_mark ;
+    G_LOG_TOKEN := p_log_token;
+  end init_exception;
   
-  g_errors g_errors_typ;
-  
-  
-  procedure put_line(
-    p_msg varchar2,
-    p_nl  boolean default true
+  procedure put(
+    p_message varchar2,
+    p_eof     boolean default true
   ) is
   begin
-    if GC_RUN_MODE <> GC_RM_DEBUG then
-      return;
-    end if;
-    
-    if p_nl then
-      dbms_output.put_line(p_msg);
-    else
-      dbms_output.put(p_msg);
-    end if;
-  end put_line;
+    log_pkg.put(
+      p_message => p_message,
+      p_eof     => p_eof
+    );
+  end put;
   
+  procedure fix_exception(
+    p_line     number,
+    p_message  varchar2,
+    p_user_msg varchar2 default null
+  ) is
+  begin
+    log_pkg.fix_exception(
+      p_message   => p_message,
+      p_unit_name => GC_UNIT_NAME,
+      p_unit_line => p_line,
+      p_user_msg  => p_user_msg
+    );
+    put('Error: ' || p_message);
+  end fix_exception;
   
+  function get_error_msg return varchar2 is
+  begin
+    return log_pkg.get_error_msg;
+  end;
   
   procedure log_write(
     p_msg_level  number, 
@@ -113,56 +119,9 @@ create or replace package body pay_gfnpo_pkg is
       
     end loop;
     
-    put_line(p_msg);
+    put(p_msg);
     
   end log_write;
-  
-  
-  
-  procedure fix_exception(
-    p_line     int,
-    p_msg      varchar2 default null
-  ) is
-    l_idx int;
-  begin
-    
-    l_idx := g_errors.count + 1;
-    
-    g_errors(l_idx).error_msg       := GC_UNIT_NAME || '(' || p_line || '): ' || nvl(p_msg, sqlerrm);
-    g_errors(l_idx).error_stack     := dbms_utility.format_error_stack;
-    g_errors(l_idx).error_backtrace := dbms_utility.format_error_backtrace;
-    g_errors(l_idx).call_stack      := dbms_utility.format_call_stack;
-    
-    if GC_RUN_MODE = GC_RM_DEBUG then
-      put_line(g_errors(l_idx).error_msg      );
-      put_line(g_errors(l_idx).error_stack    );
-      put_line(g_errors(l_idx).error_backtrace);
-      put_line(g_errors(l_idx).call_stack     );
-    end if;
-    
-  end fix_exception;
-  
-  
-  
-  function get_error_msg return varchar2 is
-  begin
-    return case when not g_errors.exists(1) then null else g_errors(1).error_msg end;
-  end get_error_msg;
-  
-  
-  
-  procedure init_errors(
-    p_log_mark  number,
-    p_log_token number default null
-  ) is
-  begin
-    
-    g_errors.delete();
-    G_LOG_MARK  := p_log_mark ;
-    G_LOG_TOKEN := p_log_token;
-    
-  end init_errors;
-  
   
   /**
    *
@@ -312,7 +271,7 @@ create or replace package body pay_gfnpo_pkg is
       else least(get_max_depth(extract(year from p_payment_period)), GC_DEPTH_RECALC)
     end;
     
-    put_line('get_assignments_cur(' || p_type_cur || '): l_depth_recalc = ' || l_depth_recalc);
+    put('get_assignments_cur(' || p_type_cur || '): l_depth_recalc = ' || l_depth_recalc);
           
     l_request := 'with w_pay_order as ( --обрабатываемый pay_order
   select /*+ materialize*/
@@ -438,7 +397,7 @@ from   (
        || chr(10) ||') pa'
     ;
     --
-    put_line(l_request);
+    put(l_request);
     --
     if p_filter_contract = 'Y' or p_filter_company = 'Y' then
       open l_result for l_request 
@@ -506,9 +465,9 @@ from   (
     ) is
       l_start_time date;
     begin
-      --put_line('Insert ASSIGNMENTS offline'); return;
+      --put('Insert ASSIGNMENTS offline'); return;
       l_start_time := sysdate;
-      put_line('start insert_assignments_ (at ' || to_char(sysdate, 'dd.mm.yyyy hh24:mi:ss') || ')... ', false);
+      put('start insert_assignments_ (at ' || to_char(sysdate, 'dd.mm.yyyy hh24:mi:ss') || ')... ', false);
       insert into assignments(
         id,
         fk_doc_with_action,
@@ -541,7 +500,7 @@ from   (
       
       close p_agreements_cur;
       
-      put_line('complete (at ' || to_char(sysdate, 'dd.mm.yyyy hh24:mi:ss') || '), duration: ' || to_char(round((sysdate - l_start_time) * 86400)) || ' sec');
+      put('complete (at ' || to_char(sysdate, 'dd.mm.yyyy hh24:mi:ss') || '), duration: ' || to_char(round((sysdate - l_start_time) * 86400)) || ' sec');
       
     exception
       when others then
@@ -688,7 +647,7 @@ from   (
     
   begin
     --
-    init_errors(
+    init_exception(
       p_log_mark  => GC_LM_ASSIGNMENTS,
       p_log_token => p_pay_order_id
     );
@@ -699,13 +658,13 @@ from   (
     l_step := '»нициализаци€ данных ордера: ' || p_pay_order_id;
     l_pay_order := get_pay_order(p_pay_order_id, p_oper_id);
     --
-    put_line(p_msg => 'Update PA periods off');
+    put('Update PA periods off');
     if 1=0 then
-      put_line(p_msg => 'Update PA periods');
+      put('Update PA periods');
       update_pa_periods(
         l_pay_order.payment_period
       );
-      put_line(p_msg => 'Complete update PA periods');
+      put('Complete update PA periods');
     end if;
     --
     if l_pay_order.fk_pay_order_type = 5 then
@@ -786,7 +745,7 @@ from   (
     --
   begin
     --
-    init_errors(
+    init_exception(
       p_log_mark  => GC_LM_ASSIGNMENTS,
       p_log_token => p_pay_order_id
     );
@@ -896,7 +855,7 @@ from   (
       when matched then
         update set
           pap.effective_date = u.effective_date,
-          pap.first_restriction_date = first_restriction_date
+          pap.first_restriction_date = u.first_restriction_date
       ;
       commit;
     exception
