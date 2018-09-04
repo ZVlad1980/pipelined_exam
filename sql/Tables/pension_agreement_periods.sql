@@ -3,7 +3,13 @@ create table pension_agreement_periods(
     constraint pension_agreement_periods_pk primary key,
   effective_date           date,
   first_restriction_date   date,
-  creation_date            date default sysdate
+  creation_date            date default sysdate,
+  constraint pension_agreement_periods_fk 
+    foreign key (fk_pension_agreement)
+    references pension_agreements
 ) organization index
  -- tablespace GFNDINDX
 /
+comment on table pension_agreement_periods is 'Периоды оплаты по пенс.соглашеням';
+comment on column pension_agreement_periods.effective_date is 'Дата первого не оплаченного периода';
+comment on column pension_agreement_periods.first_restriction_date is 'Дата начала первого активного ограничения';

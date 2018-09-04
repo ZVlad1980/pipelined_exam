@@ -1,4 +1,5 @@
-create or replace view pay_orders_charge_v as
+drop view pay_orders_charge_v;
+create or replace view pay_order_periods_v as
   select po.fk_document, 
          po.payment_period, 
          po.operation_date, 
@@ -27,6 +28,7 @@ create or replace view pay_orders_charge_v as
            end
          ) - 1 end_half_year,
          trunc(po.payment_period, 'Y') start_year,
-         to_date(extract(year from po.payment_period) || '1231', 'yyyymmdd') end_year
+         to_date(extract(year from po.payment_period) || '1231', 'yyyymmdd') end_year,
+         trunc(to_date(extract(year from po.payment_period) || '1231', 'yyyymmdd'), 'MM') end_year_month
   from   pay_orders po
 /
