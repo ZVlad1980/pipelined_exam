@@ -14,33 +14,14 @@ create or replace package body pay_gfnpo_pkg is
   
   GC_LM_ASSIGNMENTS  constant number := 1;
   
-  --GC_OPS_COMPANY         constant number := 1001;   -- вкладчик ќѕ—
-  --GC_OPS_SCHEME          constant number := 7;      -- схема ќѕ—
-  
-  --GC_CONTRACT_PEN        constant number := 6;      -- контракт-пенсионное соглашение
-  
   GC_ASG_PAY_CODE        constant number := 5000;  -- начисление, код выплата пенсии
   
   GC_CT_TERM             constant varchar2(10) := 'TERM';
   GC_CT_LIFE             constant varchar2(10) := 'LIFE';
-  /*GC_ASGPC_LUMP          constant number := 5052;  -- начисление, код ≈ƒ»Ќќ¬–≈ћ≈ЌЌјя ¬џѕЋј“ј
-  GC_ASGPC_AUX           constant number := 5053;  -- начисление, код ƒќѕќЋЌ»“≈Ћ№Ќјя ≈¬
-  GC_ASGPC_ASSIGNEE      constant number := 5122;  -- начисление, код —”ћћј ѕ–ј¬ќѕ–≈≈ћЌ» ”
-  GC_ASGPC_WITHHOLDING   constant number := 7604;  -- начисление удержаний
-  */
   GC_ASG_OP_TYPE         constant number := 2;      -- начисление, код типа дл€ записей начислени€ пенсии
   
   GC_PO_TYPE_PEN         constant number := 5;      --платежка по пенсии
-  --GC_PAST_NEW        constant number := 0;      -- статус соглашени€ на выплату - новое, готово к проверкам
-  --GC_PAST_PAY        constant number := 1;      -- статус соглашени€ на выплату - фаза выплат (ѕЋј“»“№)
-  --GC_PAST_STOP       constant number := 2;      -- статус соглашени€ на выплату - об€зательства выполнены (Ќ≈ ѕЋј“»“№)
-  --GC_PAST_LIST       constant number := 6;      -- статус соглашени€ на выплату - проверено, подготовлено к выплате, включено в список на 1 выплату
-  
   GC_ACCT_TYPE_SSPV  constant number := 4;      -- тип солидарного счета
-  
-  --GC_CNTRCT_ALL      constant varchar2(10) := 'ALL';  --
-  --GC_CNTRCT_LIFE     constant varchar2(10) := 'LIVE'; --пожизненна€ пенси€
-  --GC_CNTRCT_TERM     constant varchar2(10) := 'TERM'; --ежемес€чные выплаты по срокам
   
   GC_POFLTR_COMPANY  constant varchar2(10) := 'COMPANY';
   GC_POFLTR_CONTRACT constant varchar2(10) := 'CONTRACT';
@@ -263,6 +244,52 @@ create or replace package body pay_gfnpo_pkg is
   end add_month$;
   
   /**
+   * ‘ункци€ возвращает процент пенс.соглашений, оплачиваемых в заданном периоде, от общего количества
+   */
+  function get_pct_period(
+    p_period date
+  ) return number is
+    l_result number;
+  begin
+    select pap.pct
+    into   l_result
+    from   (
+              select pap.payment_period,
+                     pap.cnt,
+                     round(pap.cnt / sum(pap.cnt)over(), 2) * 100 pct
+              from   (
+                        select /*+ materialize*/
+                               trunc(pap.effective_date, 'MM') payment_period,
+                               count(1) cnt
+                        from   pension_agreement_periods pap
+                        group by trunc(pap.effective_date, 'MM')
+                     ) pap
+           ) pap
+    where pap.payment_period = p_period;
+    return l_result;
+  exception
+    when others then
+      fix_exception($$PLSQL_LINE, 'get_pct_period(' || to_char(p_period, 'dd.mm.yyyy') || ')');
+      raise;
+  end get_pct_period;
+  
+  /**
+   *
+   */
+  function get_max_depth(
+    p_year number
+  ) return number is
+    l_min_period  date;
+  begin
+    select min(pap.effective_calc_date)
+    into   l_min_period
+    from   pension_agreement_periods_v pap;
+    
+    return months_between(to_date(p_year || '1201', 'yyyymmdd'), l_min_period) + 1;
+    
+  end get_max_depth;
+  
+  /**
    *
    */
   function get_assignments_cur(
@@ -274,15 +301,18 @@ create or replace package body pay_gfnpo_pkg is
     p_filter_company   varchar2,
     p_filter_contract  varchar2
   ) return sys_refcursor is
+  
     l_result        sys_refcursor;
     l_request       varchar2(32767);
-    l_depth_recalc  number;
+    l_depth_recalc  number; --глубина поиска оплачиваемых периодов (от конца текущего года)
     
   begin
     l_depth_recalc := case p_type_cur --GC_CURTYP_INCLUDE/GC_CURTYPE_EXCLUDE/GC_CURTYP_NORMAL
       when GC_CURTYP_INCLUDE then 12 - months_between(p_payment_period, trunc(p_payment_period, 'Y'))
-      else GC_DEPTH_RECALC
+      else least(get_max_depth(extract(year from p_payment_period)), GC_DEPTH_RECALC)
     end;
+    
+    put_line('get_assignments_cur(' || p_type_cur || '): l_depth_recalc = ' || l_depth_recalc);
           
     l_request := 'with w_pay_order as ( --обрабатываемый pay_order
   select /*+ materialize*/
@@ -377,7 +407,7 @@ from   (
                    end
                  )
         and    pa.effective_date <= po.end_month' || 
-          case
+          case --если заданы фильтра
             when p_filter_contract = 'Y' then
               chr(10) ||
               'and pa.fk_contract in (
@@ -393,23 +423,23 @@ from   (
                  where  pof.filter_code = :3
                  and    pof.fk_pay_order = po.fk_document)'
           end || 
-          case
+          case --если отдельно считаем пожизненные и срочные
             when p_contract_type = GC_CT_LIFE then
               chr(10) || 'and pa.expiration_date is null'
             when p_contract_type = GC_CT_TERM then
               chr(10) || 'and pa.expiration_date is not null'
           end ||
-          case p_type_cur --GC_CURTYP_INCLUDE/GC_CURTYPE_EXCLUDE/GC_CURTYP_NORMAL
+          case p_type_cur --если отдельно считаем текущий период
             when GC_CURTYP_INCLUDE then
               chr(10) || 'and pa.effective_calc_date = po.payment_period'
-            when GC_CURTYP_EXCLUDE then
+            when GC_CURTYP_EXCLUDE then --и все остальные
               chr(10) || 'and pa.effective_calc_date <> po.payment_period'
           end
        || chr(10) ||') pa'
     ;
     --
     put_line(l_request);
-    
+    --
     if p_filter_contract = 'Y' or p_filter_company = 'Y' then
       open l_result for l_request 
         using p_pay_order_id,
@@ -459,6 +489,7 @@ from   (
     end loop;
     
   end get_assignments_calc;
+  
   /**
    *
    */
@@ -473,9 +504,11 @@ from   (
     procedure insert_assignments_(
       p_agreements_cur   sys_refcursor
     ) is
+      l_start_time date;
     begin
       --put_line('Insert ASSIGNMENTS offline'); return;
-      
+      l_start_time := sysdate;
+      put_line('start insert_assignments_ (at ' || to_char(sysdate, 'dd.mm.yyyy hh24:mi:ss') || ')... ', false);
       insert into assignments(
         id,
         fk_doc_with_action,
@@ -507,7 +540,9 @@ from   (
       log errors into err$_assignments (p_error_tag) reject limit unlimited;
       
       close p_agreements_cur;
-    
+      
+      put_line('complete (at ' || to_char(sysdate, 'dd.mm.yyyy hh24:mi:ss') || '), duration: ' || to_char(round((sysdate - l_start_time) * 86400)) || ' sec');
+      
     exception
       when others then
         
@@ -520,35 +555,54 @@ from   (
   
   begin
     
-    insert_assignments_(
-      p_agreements_cur  => get_assignments_cur(
-            p_pay_order_id    => p_pay_order.pay_order_id,
-            p_parallel        => p_parallel,
-            p_type_cur        => GC_CURTYP_INCLUDE,
-            p_payment_period  => p_pay_order.payment_period,
-            p_contract_type   => case to_number(substr(p_pay_order.payment_freqmask, 7, 2)) 
-                                   when 11 then null 
-                                   when 10 then GC_CT_TERM 
-                                   when 1 then  GC_CT_LIFE end,
-            p_filter_company  => p_filter_company ,
-            p_filter_contract => p_filter_contract
-          )
-    );
-    
-    insert_assignments_(
-      p_agreements_cur  => get_assignments_cur(
-            p_pay_order_id    => p_pay_order.pay_order_id,
-            p_parallel        => p_parallel,
-            p_type_cur        => GC_CURTYP_EXCLUDE,
-            p_payment_period  => p_pay_order.payment_period,
-            p_contract_type   => case to_number(substr(p_pay_order.payment_freqmask, 7, 2)) 
-                                   when 11 then null 
-                                   when 10 then GC_CT_TERM 
-                                   when 1 then  GC_CT_LIFE end,
-            p_filter_company  => p_filter_company ,
-            p_filter_contract => p_filter_contract
-          )
-    );
+    if get_pct_period(p_pay_order.payment_period) > 80 then
+      --если в текущем периоде более 80% соглашений - считаем его отдельно
+      insert_assignments_(
+        p_agreements_cur  => get_assignments_cur(
+              p_pay_order_id    => p_pay_order.pay_order_id,
+              p_parallel        => p_parallel,
+              p_type_cur        => GC_CURTYP_INCLUDE,
+              p_payment_period  => p_pay_order.payment_period,
+              p_contract_type   => case to_number(substr(p_pay_order.payment_freqmask, 7, 2)) 
+                                     when 11 then null 
+                                     when 10 then GC_CT_TERM 
+                                     when 1 then  GC_CT_LIFE end,
+              p_filter_company  => p_filter_company ,
+              p_filter_contract => p_filter_contract
+            )
+      );
+      
+      insert_assignments_(
+        p_agreements_cur  => get_assignments_cur(
+              p_pay_order_id    => p_pay_order.pay_order_id,
+              p_parallel        => p_parallel,
+              p_type_cur        => GC_CURTYP_EXCLUDE,
+              p_payment_period  => p_pay_order.payment_period,
+              p_contract_type   => case to_number(substr(p_pay_order.payment_freqmask, 7, 2)) 
+                                     when 11 then null 
+                                     when 10 then GC_CT_TERM 
+                                     when 1 then  GC_CT_LIFE end,
+              p_filter_company  => p_filter_company ,
+              p_filter_contract => p_filter_contract
+            )
+      );
+    else
+      --иначе считаем все периоды вместе
+      insert_assignments_(
+        p_agreements_cur  => get_assignments_cur(
+              p_pay_order_id    => p_pay_order.pay_order_id,
+              p_parallel        => p_parallel,
+              p_type_cur        => GC_CURTYP_NORMAL,
+              p_payment_period  => p_pay_order.payment_period,
+              p_contract_type   => case to_number(substr(p_pay_order.payment_freqmask, 7, 2)) 
+                                     when 11 then null 
+                                     when 10 then GC_CT_TERM 
+                                     when 1 then  GC_CT_LIFE end,
+              p_filter_company  => p_filter_company ,
+              p_filter_contract => p_filter_contract
+            )
+      );
+    end if;
     
   exception
     when others then
@@ -769,7 +823,6 @@ from   (
     p_update_date   date,
     p_append_new    boolean default true
   ) is
-    l_update_date date;
     
     procedure append_new_ is
     begin
@@ -794,7 +847,10 @@ from   (
     --
     --
     procedure update_(p_update_date date) is
+      l_end_year_month date;
     begin
+      l_end_year_month := to_date(extract(year from p_update_date) || '1201', 'yyyymmdd');
+      
       merge into pension_agreement_periods pap
       using (
               with w_months as ( --список обрабатываемых мес€цев
@@ -802,9 +858,9 @@ from   (
                        m.month_date,
                        last_day(m.month_date) end_month_date
                 from   lateral(
-                            select add_months(p_update_date, -1 * (level - 1)) month_date
+                            select add_months(l_end_year_month, -1 * (level - 1)) month_date
                             from   dual
-                            connect by level < GC_DEPTH_RECALC
+                            connect by level < GC_DEPTH_RECALC + 1
                        ) m
               )
               select /*+ parallel(5)*/
