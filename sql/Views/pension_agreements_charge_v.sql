@@ -10,22 +10,15 @@ create or replace view pension_agreements_charge_v as
          pa.fk_contragent,
          pa.effective_date,
          pa.expiration_date,
+         coalesce(pap.effective_date, pa.effective_date) calc_effective_date,
          pa.pa_amount,
          pa.deathdate,
          pa.last_pay_date,
-         pa.creation_date,
-         case
-           when not exists(
-                  select 1
-                  from   assignments asg
-                  where  asg.fk_credit = pa.fk_credit
-                ) then
-             'Y'
-           else
-             'N'
-         end is_first_pay
-  from   pension_agreements_v pa
+         pa.creation_date
+  from   pension_agreements_v      pa,
+         pension_agreement_periods pap
   where  1 = 1
+  and    pap.fk_pension_agreement(+) = pa.fk_contract
   and    pa.state = 1
   and    pa.isarhv = 0
 /

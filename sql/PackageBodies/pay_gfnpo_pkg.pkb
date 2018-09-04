@@ -10,7 +10,7 @@ create or replace package body pay_gfnpo_pkg is
   GC_ST_SUCCESS  constant number := 0;
   GC_ST_ERROR    constant number := 3;
   
-  GC_DEPTH_RECALC constant number := 287; --период проверки начислений в месяцах (от декабря текущего года)
+  GC_DEPTH_RECALC constant number := 480; --период проверки начислений в месяцах (от декабря текущего года)
   
   GC_LM_ASSIGNMENTS  constant number := 1;
   
@@ -30,6 +30,7 @@ create or replace package body pay_gfnpo_pkg is
   */
   GC_ASG_OP_TYPE         constant number := 2;      -- начисление, код типа для записей начисления пенсии
   
+  GC_PO_TYPE_PEN         constant number := 5;      --платежка по пенсии
   --GC_PAST_NEW        constant number := 0;      -- статус соглашения на выплату - новое, готово к проверкам
   --GC_PAST_PAY        constant number := 1;      -- статус соглашения на выплату - фаза выплат (ПЛАТИТЬ)
   --GC_PAST_STOP       constant number := 2;      -- статус соглашения на выплату - обязательства выполнены (НЕ ПЛАТИТЬ)
@@ -299,7 +300,6 @@ w_months as ( --список обрабатываемых месяцев
 select /*+ parallel(' || to_char(p_parallel) || ') */
        pa.fk_contract,
        coalesce(
-         --to_number(substr(pa.paa_info, 1, instr(pa.paa_info, ''#'') - 1)),
          pa.fk_provacct,
          pa.fk_debit
        ) fk_debit,
@@ -308,7 +308,6 @@ select /*+ parallel(' || to_char(p_parallel) || ') */
        pa.fk_scheme,
        pa.fk_contragent,
        pa.month_date paydate,
-       --to_number(substr(pa.paa_info, instr(pa.paa_info, ''#'') + 1)) amount,
        pa.amount,
        trunc(least(pa.last_pay_date, pa.end_month_date)) - trunc(greatest(pa.month_date, pa.effective_date)) + 1 paydays
 from   (
@@ -322,12 +321,6 @@ from   (
                pa.expiration_date,
                m.month_date,
                m.end_month_date,
-               /*(select to_char(paa.fk_provacct) || ''#'' ||
-                         to_char(case when m.month_date = paa.from_date then paa.first_amount else paa.amount end) paa_info
-                from   pension_agreement_addendums_v paa
-                where  m.month_date between paa.from_date and paa.end_date
-                and    paa.fk_pension_agreement = pa.fk_contract
-               ) paa_info,*/
                paa.fk_provacct,
                case when m.month_date = paa.from_date then paa.first_amount else paa.amount end amount,
                last_day(least(pa.last_pay_date, case pa.period_code 
@@ -351,7 +344,7 @@ from   (
                  and    a.fk_paycode = ' || GC_ASG_PAY_CODE || '
                  and    a.fk_doc_with_acct = pa.fk_contract
                  and    a.paydate between m.month_date and m.end_month_date 
-                 and    a.fk_asgmt_type = 2
+                 and    a.fk_asgmt_type = ' || GC_ASG_OP_TYPE || '
                )
         and    not exists (
                   select 1
@@ -360,7 +353,7 @@ from   (
                   and    m.month_date between pr.effective_date and nvl(pr.expiration_date, m.month_date)
                   and    pr.fk_doc_with_acct = pa.fk_contract
                )
-        and    m.month_date between trunc(pa.effective_date, ''MM'') and 
+        and    m.month_date between pa.calc_effective_date and 
                  least(pa.last_pay_date, 
                    case pa.period_code 
                      when 1 then po.end_month
@@ -454,23 +447,6 @@ from   (
     p_agreements_cur   sys_refcursor,
     p_error_tag          varchar2
   ) is
-    /*type l_agreements_typ is record (
-      fk_contract           pension_agreements.fk_contract%type,
-      fk_debit              contracts.fk_account%type,
-      fk_credit             contracts.fk_account%type,
-      fk_company            contracts.fk_company%type,
-      fk_scheme             contracts.fk_scheme%type,
-      fk_contragent         contracts.fk_contragent%type,
-      effective_date        pension_agreements.effective_date%type,
-      expiration_date       pension_agreements.expiration_date%type,
-      paydate               date,
-      amount                number,
-      paydays               number
-    );
-    
-    l_agreement   l_agreements_typ;
-    l_assignment  assignments%rowtype;*/
-   
   begin
     --put_line('calc_assignments: Расчет начислений отключен');    return;
     
@@ -506,45 +482,6 @@ from   (
     
     close p_agreements_cur;
     
-    /*
-    assignments_api.init(p_err_tag => p_err_tag);
-  
-    l_assignment.fk_doc_with_action := p_pay_order.pay_order_id;
-    l_assignment.fk_asgmt_type      := GC_ASG_OP_TYPE;  -- код "начисление пенсии"
-    l_assignment.fk_paycode         := GC_ASG_PAY_CODE; ----case when l_agreement.expiration_date is null then GC_ASGPC_LIFE else GC_ASGPC_TERM end;  -- тип начисляемой пенсии (пожизненная/срочная)
-      
-    
-    --for pa in l_agreements_cur(p_pay_order.pay_order_id, p_pay_order.last_day_month) loop
-    loop
-      fetch p_agreements_cur into l_agreement;
-      exit when p_agreements_cur%notfound;
-      
-      l_assignment.fk_doc_with_acct := l_agreement.fk_contract;
-      l_assignment.serv_doc         := l_agreement.fk_contract;
-      l_assignment.fk_credit        := l_agreement.fk_credit;
-      l_assignment.fk_scheme        := l_agreement.fk_scheme;
-      l_assignment.fk_contragent    := l_agreement.fk_contragent;
-      l_assignment.paydate          := l_agreement.paydate;
-      l_assignment.paydays          := l_agreement.paydays;
-      l_assignment.amount           := l_agreement.amount;
-      --l_assignment.comments         := 'Начисление пенсии. ОПС Пожизненная выплата.';
-      
-      l_assignment.fk_debit         := l_agreement.fk_debit;
-      
-      if l_assignment.fk_debit is null and l_assignment.fk_scheme in (1, 5, 6) then
-        l_assignment.fk_debit := g_acct_sspv_tbl(l_assignment.fk_scheme);
-      end if;
-      
-      assignments_api.push(
-        p_assignment => l_assignment
-      );
-      
-    end loop;
-    --
-    close p_agreements_cur;
-    --
-    assignments_api.flush;
-    --*/
   exception
     when others then
       if p_agreements_cur%isopen then
@@ -601,7 +538,7 @@ from   (
   /**
    *
    */
-  function fill_charges_by_pay_order(
+  function calc_assignments(
     p_pay_order_id number,
     p_oper_id      number,
     p_parallel     number default 4
@@ -643,6 +580,10 @@ from   (
     l_step := 'Инициализация данных ордера: ' || p_pay_order_id;
     l_pay_order := get_pay_order(p_pay_order_id, p_oper_id);
     --
+    update_pa_periods(
+      l_pay_order.payment_period
+    );
+    --
     if l_pay_order.fk_pay_order_type = 5 then
       if to_number(substr(l_pay_order.payment_freqmask, 7, 2)) > 0 then
         calc_assignments(
@@ -673,7 +614,7 @@ from   (
     --
   exception
     when others then
-      fix_exception($$PLSQL_LINE, 'fill_charges_by_pay_order(' || p_pay_order_id || ', ' || p_oper_id || ') failed');
+      fix_exception($$PLSQL_LINE, 'calc_assignments(' || p_pay_order_id || ', ' || p_oper_id || ') failed');
       
       Log_Write(3, 'Процедура нормально не завершена из-за ошибки. Откат транзакции.'  );
       Log_Write(3, l_step);
@@ -682,7 +623,182 @@ from   (
       
       return GC_ST_ERROR;
       
-  end fill_charges_by_pay_order;
+  end calc_assignments;
+  
+  /**
+   * Функция откатывает результаты начислений пенсий по заданному pPayOrder
+   */
+  function purge_assignments(
+    p_pay_order_id number,
+    p_oper_id      number,
+    p_commit       number default 0
+  ) return number as
+    l_pay_order g_pay_order_typ;
+    
+    --
+    procedure update_pa_periods_ is
+    begin
+      merge into pension_agreement_periods pap
+      using (select asg.fk_doc_with_acct fk_pension_agreement,
+                    min(asg.paydate)     new_effective_date
+             from   assignments asg
+             where  asg.fk_doc_with_action = p_pay_order_id
+             group by asg.fk_doc_with_acct
+            )u
+      on    (pap.fk_pension_agreement = u.fk_pension_agreement)
+      when matched then
+        update set
+        pap.effective_date = least(u.new_effective_date, pap.effective_date)
+      ;
+    exception
+      when others then
+        fix_exception($$PLSQL_LINE, 'update_pa_periods_');
+        raise;
+    end update_pa_periods_;
+    
+    --
+    procedure purge_assignments_ is
+    begin
+      delete from assignments asg
+      where  asg.fk_doc_with_action = p_pay_order_id;
+    exception
+      when others then
+        fix_exception($$PLSQL_LINE, 'purge_assignments_');
+        raise;
+    end purge_assignments_;
+    --
+  begin
+    --
+    init_errors(
+      p_log_mark  => GC_LM_ASSIGNMENTS,
+      p_log_token => p_pay_order_id
+    );
+    l_pay_order := get_pay_order(p_pay_order_id, p_oper_id);
+    --
+    if l_pay_order.fk_pay_order_type = GC_PO_TYPE_PEN then
+      update_pa_periods_;
+    end if;
+    --
+    purge_assignments_;
+    --
+    if p_commit = 1 then
+      commit;
+    end if;
+    --
+    return GC_ST_SUCCESS;
+    --
+  exception
+    when others then
+      fix_exception($$PLSQL_LINE, 'purge_assignments(' || p_pay_order_id || ', ' || p_oper_id || ') failed');
+      
+      Log_Write(3, 'Wipe_Charges_by_PayOrder: Процедура нормально не завершена из-за ошибки. Откат транзакции.'  );
+      Log_Write(3, get_error_msg);
+      rollback;
+      
+      return GC_ST_ERROR;
+    
+  end purge_assignments;
+  
+  /**
+   * Процедура обновляет список пенс.соглашений и их периоды оплат
+   */
+  procedure update_pa_periods(
+    p_update_date   date,
+    p_append_new    boolean default true
+  ) is
+    l_update_date date;
+    
+    procedure append_new_ is
+    begin
+      merge into pension_agreement_periods pap
+      using (select pac.fk_contract,
+                    trunc(pac.effective_date, 'MM') effective_date
+             from   pension_agreements_charge_v pac
+            ) u
+      on    (pap.fk_pension_agreement = u.fk_contract)
+      when not matched then
+        insert(fk_pension_agreement, effective_date)
+        values(u.fk_contract, u.effective_date)
+      ;
+      commit;
+    exception
+      when others then
+        fix_exception($$PLSQL_LINE, 'append_new_ failed');
+        raise;
+    end append_new_;
+    
+    --
+    --
+    --
+    procedure update_(p_update_date date) is
+    begin
+      merge into pension_agreement_periods pap
+      using (
+              with w_months as ( --список обрабатываемых месяцев
+                select /*+ materialize*/
+                       m.month_date,
+                       last_day(m.month_date) end_month_date
+                from   lateral(
+                            select add_months(p_update_date, -1 * (level - 1)) month_date
+                            from   dual
+                            connect by level < GC_DEPTH_RECALC
+                       ) m
+              )
+              select /*+ parallel(5)*/
+                     pap.fk_pension_agreement,
+                     min(m.month_date) effective_date,
+                     ( select min(pr.effective_date)
+                       from   pay_restrictions pr
+                       where  pr.fk_document_cancel is null
+                       and    pr.fk_doc_with_acct = pap.fk_pension_agreement
+                     ) first_restriction_date
+              from   pension_agreement_periods pap,
+                     w_months                  m
+              where  1=1
+              and    not exists ( --нет активного ограничения на этот месяц
+                       select 1
+                       from   pay_restrictions pr
+                       where  m.month_date between trunc(pr.effective_date, 'MM') and coalesce(pr.expiration_date, m.month_date)
+                       and    pr.fk_document_cancel is null
+                       and    pr.fk_doc_with_acct = pap.fk_pension_agreement
+                     ) --*/
+              and    not exists(
+                       select 1
+                       from   assignments               asg
+                       where  asg.fk_paycode = GC_ASG_PAY_CODE
+                       and    asg.fk_asgmt_type = GC_ASG_OP_TYPE
+                       and    asg.paydate between m.month_date and m.end_month_date
+                       and    asg.fk_doc_with_acct = pap.fk_pension_agreement
+                     )
+              and    m.month_date >= coalesce(pap.first_restriction_date, pap.effective_date)
+              group by pap.fk_pension_agreement
+            ) u
+      on    (pap.fk_pension_agreement = u.fk_pension_agreement)
+      when matched then
+        update set
+          pap.effective_date = u.effective_date,
+          pap.first_restriction_date = first_restriction_date
+      ;
+      commit;
+    exception
+      when others then
+        fix_exception($$PLSQL_LINE, 'update_ failed');
+        raise;
+    end update_;
+    
+  begin
+    
+    if p_append_new then
+      append_new_;
+    end if;
+    
+    update_(trunc(p_update_date, 'MM'));
+  
+  exception
+    when others then
+      fix_exception($$PLSQL_LINE, 'update_pa_periods(' || to_char(p_update_date, 'dd.mm.yyyy')|| ', ' || case when p_append_new then 'Append NEW' else 'Not append new' end || ') failed');
+      raise;
+  end update_pa_periods;
   
 end pay_gfnpo_pkg;
 /
