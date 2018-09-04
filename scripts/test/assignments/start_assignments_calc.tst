@@ -1,5 +1,5 @@
 PL/SQL Developer Test script 3.0
-49
+59
 -- Created on 31.08.2018 by V.ZHURAVOV 
 declare 
   l_start date;
@@ -39,15 +39,25 @@ declare
   end;
 begin
   -- Test statements here
+  --dbms_session.reset_package; return;
+    
   --dbms_output.put_line(create_po()); return;
-  
-  dbms_session.reset_package; return;
+   
   
   l_start := sysdate;
+  --/*
   dbms_output.put_line('Start at ' || to_char(l_start, 'dd.mm.yyyy hh24:mi:ss'));
-  dbms_output.put_line(pay_gfnpo_pkg.fill_charges_by_pay_order(p_pay_order_id => 23855207, p_oper_id => 0));
+  dbms_output.put_line(pay_gfnpo_pkg.purge_assignments(p_pay_order_id => 23855207, p_oper_id => 0, p_commit => 1));
   dbms_output.put_line('Complete at ' || to_char(sysdate, 'dd.mm.yyyy hh24:mi:ss'));
   dbms_output.put_line(' Duration: ' || to_char(round((sysdate - l_start) * 86400, 3)) || ' sec');
+  --*/
+  --/*
+  l_start := sysdate;
+  dbms_output.put_line('Start at ' || to_char(l_start, 'dd.mm.yyyy hh24:mi:ss'));
+  dbms_output.put_line(pay_gfnpo_pkg.calc_assignments(p_pay_order_id => 23855207, p_oper_id => 0));
+  dbms_output.put_line('Complete at ' || to_char(sysdate, 'dd.mm.yyyy hh24:mi:ss'));
+  dbms_output.put_line(' Duration: ' || to_char(round((sysdate - l_start) * 86400, 3)) || ' sec');
+ -- */
 end;
 0
 0
