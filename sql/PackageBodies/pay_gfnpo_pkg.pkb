@@ -658,11 +658,11 @@ from   (
     l_step := 'Инициализация данных ордера: ' || p_pay_order_id;
     l_pay_order := get_pay_order(p_pay_order_id, p_oper_id);
     --
-    put('Update PA periods');
+    put('Update PA periods at ' || to_char(sysdate, 'dd.mm.yyyy hh24:mi:ss'));
     update_pa_periods(
       l_pay_order.payment_period
     );
-    put('Complete update PA periods');
+    put('Complete update PA periods at ' || to_char(sysdate, 'dd.mm.yyyy hh24:mi:ss'));
     --
     if l_pay_order.fk_pay_order_type = 5 then
       if to_number(substr(l_pay_order.payment_freqmask, 7, 2)) > 0 then
@@ -774,6 +774,7 @@ from   (
   
   /**
    * Процедура обновляет список пенс.соглашений и их периоды оплат
+   *  Возможен, и рекомендуем, ежедневный запуск по расписанию, для поддержания актуальности данных
    */
   procedure update_pa_periods(
     p_update_date   date,
@@ -781,6 +782,7 @@ from   (
   ) is
     
     procedure append_new_ is
+      l_new_rows number;
     begin
       merge into pension_agreement_periods pap
       using (select pac.fk_contract,
@@ -792,7 +794,15 @@ from   (
         insert(fk_pension_agreement, effective_date)
         values(u.fk_contract, u.effective_date)
       ;
+      
+      l_new_rows := sql%rowcount;
+      
       commit;
+      
+      if l_new_rows > 10000 then
+        dbms_stats.gather_table_stats(user, upper('pension_agreement_periods'), cascade => true);
+      end if;
+      
     exception
       when others then
         fix_exception($$PLSQL_LINE, 'append_new_ failed');
@@ -823,45 +833,54 @@ from   (
               )
               select /*+ parallel(5)*/
                      pap.fk_pension_agreement,
-                     coalesce(pap.effective_date, l_next_year) effective_date,
+                     pap.effective_date,
                      pap.first_restriction_date
               from   (
-                      select pap.fk_pension_agreement,
-                             pap.effective_date                        curr_effective_date,
-                             pap.first_restriction_date                curr_restriction_date,
-                             coalesce(min(m.month_date), l_next_year)  effective_date,
-                             (
-                               select min(pr.effective_date)
-                               from   pay_restrictions pr
-                               where  pr.fk_document_cancel is null
-                               and    pr.fk_doc_with_acct 
-                                 = pap.fk_pension_agreement
-                             )                                first_restriction_date
-                      from   pension_agreement_periods pap
-                      left join w_months               m
-                        on   not exists ( --нет активного ограничения на этот месяц
-                                 select 1
-                                 from   pay_restrictions pr
-                                 where  m.month_date between trunc(pr.effective_date, 'MM') and coalesce(pr.expiration_date, m.month_date)
-                                 and    pr.fk_document_cancel is null
-                                 and    pr.fk_doc_with_acct = pap.fk_pension_agreement
-                               ) --*/
-                        and    not exists(
-                                 select 1
-                                 from   assignments asg
-                                 where  asg.fk_paycode = GC_ASG_PAY_CODE
-                                 and    asg.fk_asgmt_type = GC_ASG_OP_TYPE
-                                 and    asg.paydate between m.month_date and m.end_month_date
-                                 and    asg.fk_doc_with_acct = pap.fk_pension_agreement
-                               )
-                        and    m.month_date >= least(coalesce(pap.first_restriction_date, pap.effective_date), pap.effective_date)
-                      group by pap.fk_pension_agreement, pap.effective_date, pap.first_restriction_date
-                     ) pap
-              where  (
-                       pap.curr_effective_date <> pap.effective_date
-                      or
-                       coalesce(pap.curr_restriction_date, sysdate) <> coalesce(pap.first_restriction_date, sysdate)
-                     )
+                select /*+ parallel(5)*/
+                       pap.fk_pension_agreement,
+                       pap.effective_date curr_effective_date,
+                       pap.first_restriction_date curr_restriction_date,
+                       coalesce(pap2.effective_date, l_next_year) effective_date,
+                       ( select min(pr.effective_date)
+                         from   pay_restrictions pr
+                         where  pr.fk_document_cancel is null
+                         and    pr.fk_doc_with_acct = pap.fk_pension_agreement
+                       ) first_restriction_date
+                from   pension_agreement_periods pap
+                left join
+                       (
+                          select pap.fk_pension_agreement,
+                                 max(pap.effective_date) curr_effective_date,
+                                 max(pap.first_restriction_date) curr_first_restriction_date,
+                                 min(m.month_date) effective_date
+                          from   pension_agreement_periods pap,
+                                 w_months                  m
+                          where  1=1
+                          and    not exists ( --нет активного ограничения на этот месяц
+                                   select 1
+                                   from   pay_restrictions pr
+                                   where  m.month_date between trunc(pr.effective_date, 'MM') and coalesce(pr.expiration_date, m.month_date)
+                                   and    pr.fk_document_cancel is null
+                                   and    pr.fk_doc_with_acct = pap.fk_pension_agreement
+                                 ) --*/
+                          and    not exists(
+                                   select 1
+                                   from   assignments               asg
+                                   where  asg.fk_paycode = GC_ASG_PAY_CODE
+                                   and    asg.fk_asgmt_type = GC_ASG_OP_TYPE
+                                   and    asg.paydate between m.month_date and m.end_month_date
+                                   and    asg.fk_doc_with_acct = pap.fk_pension_agreement
+                                 )
+                          and    m.month_date >= least(pap.effective_date, coalesce(pap.first_restriction_date, pap.effective_date))
+                          group by pap.fk_pension_agreement
+                        ) pap2
+                on pap2.fk_pension_agreement = pap.fk_pension_agreement
+              ) pap
+              where (
+                    (coalesce(pap.curr_restriction_date, sysdate) <> coalesce(pap.first_restriction_date, sysdate))
+                    or
+                    (pap.curr_effective_date <> pap.effective_date)
+              )
             ) u
       on    (pap.fk_pension_agreement = u.fk_pension_agreement)
       when matched then

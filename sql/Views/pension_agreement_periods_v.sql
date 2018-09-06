@@ -12,7 +12,6 @@ create or replace view pension_agreement_periods_v as
          paa.effective_date,
          paa.expiration_date,
          paa.pa_amount,
-         paa.deathdate,
          paa.last_pay_date,
          paa.creation_date
   from   pension_agreement_periods   pap,
