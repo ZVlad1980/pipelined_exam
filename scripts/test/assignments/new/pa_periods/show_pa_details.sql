@@ -15,3 +15,7 @@ from   assignments asg
 where  asg.fk_doc_with_acct = &fk_pa
 and    asg.fk_asgmt_type = 2
 order by asg.paydate desc
+/
+select *
+from   pension_agreements_active_v paa
+where  paa.fk_contract = &fk_pa

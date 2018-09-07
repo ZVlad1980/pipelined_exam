@@ -29,9 +29,10 @@ and    cn.fk_document = pap.fk_pension_agreement
 and    pap.effective_date >= to_date('01.01.2019','dd.mm.yyyy')
 ) t
 /
-select *
+select count(1)
 from   pension_agreement_periods pap
-where  pap.effective_date <> to_date('01.07.2018', 'dd.mm.yyyy')
+where  pap.effective_date = to_date('01.07.2018', 'dd.mm.yyyy')
+and    pap.first_restriction_date < pap.effective_date
 /
 select pap.payment_period,
        pap.cnt,

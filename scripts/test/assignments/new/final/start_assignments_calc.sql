@@ -1,5 +1,3 @@
-PL/SQL Developer Test script 3.0
-62
 -- Created on 31.08.2018 by V.ZHURAVOV 
 declare 
   l_start date;
@@ -24,7 +22,7 @@ declare
         values(doc_id, payment_period, operation_date, payment_freqmask, operation_date, fk_pay_order_type)
         log errors into ERR$_IMP_PAY_ORDERS (l_err_tag) reject limit unlimited
       select l_po_id doc_id,
-             'Тестовое начисление' doc_title,
+             'РўРµСЃС‚РѕРІРѕРµ РЅР°С‡РёСЃР»РµРЅРёРµ' doc_title,
              to_date(20180701, 'yyyymmdd') payment_period,
              to_date(20180710, 'yyyymmdd') operation_date,
              '00001111'                    payment_freqmask,
@@ -41,26 +39,29 @@ begin
   -- Test statements here
   --dbms_session.reset_package; return;
     
-  dbms_output.put_line(create_po()); return;
+  --dbms_output.put_line(create_po()); return;
   
   log_pkg.enable_output;
   
   l_start := sysdate;
   /*
   dbms_output.put_line('Start at ' || to_char(l_start, 'dd.mm.yyyy hh24:mi:ss'));
-  dbms_output.put_line(pay_gfnpo_pkg.purge_assignments(p_pay_order_id => 23855207, p_oper_id => 0, p_commit => 1));
+  dbms_output.put_line(pay_gfnpo_pkg.purge_assignments(p_pay_order_id => 23855208, p_oper_id => 0, p_commit => 1));
   dbms_output.put_line('Complete at ' || to_char(sysdate, 'dd.mm.yyyy hh24:mi:ss'));
   dbms_output.put_line(' Duration: ' || to_char(round((sysdate - l_start) * 86400, 3)) || ' sec');
   --*/
   --/*
   l_start := sysdate;
   dbms_output.put_line('Start at ' || to_char(l_start, 'dd.mm.yyyy hh24:mi:ss'));
-  dbms_output.put_line(pay_gfnpo_pkg.calc_assignments(p_pay_order_id => 23855207, p_oper_id => 0));
+  begin
+    pay_gfnpo_pkg.calc_assignments(p_pay_order_id => 23855210, p_oper_id => 0);
+  exception
+    when others then
+      log_pkg.show_errors_all;
+  end;
   dbms_output.put_line('Complete at ' || to_char(sysdate, 'dd.mm.yyyy hh24:mi:ss'));
   dbms_output.put_line(' Duration: ' || to_char(round((sysdate - l_start) * 86400, 3)) || ' sec');
  -- */
---первый PO 23855207
---второй PO 23855208
+--РїРµСЂРІС‹Р№ PO 23855207
+--РІС‚РѕСЂРѕР№ PO 23855208
 end;
-0
-0
