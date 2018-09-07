@@ -14,6 +14,8 @@ create or replace type assignment_rec_typ as object
   paydate               date,
   amount                number,
   paydays               number,
+  addendum_from_date    date,
+  last_pay_date         date,
   
   constructor function assignment_rec_typ return self as result
 )

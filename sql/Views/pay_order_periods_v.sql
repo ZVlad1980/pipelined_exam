@@ -1,4 +1,3 @@
-drop view pay_orders_charge_v;
 create or replace view pay_order_periods_v as
   select po.fk_document, 
          po.payment_period, 
