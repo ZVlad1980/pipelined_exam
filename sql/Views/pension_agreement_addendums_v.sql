@@ -15,7 +15,7 @@ create or replace view pension_agreement_addendums_v as
   from     (
     select paa.id,
            trunc(paa.alt_date_begin, 'MM') from_date,
-           nvl(lead(paa.alt_date_begin - 1)over(partition by paa.fk_pension_agreement order by serialno), last_day(sysdate) + 1) end_date,
+           nvl(lead(paa.alt_date_begin - 1)over(partition by paa.fk_pension_agreement order by serialno), to_date(47121231, 'yyyymmdd') + 1) end_date,
            paa.fk_pension_agreement,
            paa.fk_provacct, 
            paa.serialno, 

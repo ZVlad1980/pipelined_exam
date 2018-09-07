@@ -13,7 +13,6 @@ create or replace view pension_agreements_imp_v as
          pa.effective_date,
          pa.expiration_date,
          pa.pa_amount,
-         pa.deathdate,
          pa.last_pay_date,
          pa.creation_date,
          pa.last_update,

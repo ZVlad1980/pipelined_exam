@@ -14,21 +14,14 @@ create or replace view pension_agreements_v as
          pa.effective_date,
          pa.expiration_date,
          pa.amount pa_amount,
-         p.deathdate,
-         last_day(
-           least(
-             coalesce(p.deathdate, to_date(99991231, 'yyyymmdd')),
-             coalesce(pa.expiration_date, to_date(99991231, 'yyyymmdd')))
-         )                                           last_pay_date,
+         coalesce(pa.expiration_date, to_date(99991231, 'yyyymmdd')) last_pay_date,
          pa.creation_date,
          pa.last_update
   from   pension_agreements pa,
          contracts          cn,
-         contracts          bcn,
-         people             p
+         contracts          bcn
   where  1 = 1
   and    bcn.fk_document = pa.fk_base_contract
-  and    p.fk_contragent = bcn.fk_contragent
   and    pa.fk_contract = cn.fk_document
   and    cn.fk_scheme in (1, 2, 3, 4, 5, 6, 8)
   and    cn.fk_cntr_type = 6

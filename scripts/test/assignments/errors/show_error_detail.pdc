@@ -1,0 +1,21 @@
+prompt
+prompt
+select pd.source_table, pd.ssylka, pd.status_pen, pd.data_nach_vypl
+from   sp_pen_dog_v pd
+where  pd.ssylka = &ssylka
+/
+prompt
+prompt
+select op.source_table, op.ssylka_fl, op.nach_deistv, op.okon_deistv, op.primech
+from   sp_ogr_pv_v op
+where  op.ssylka_fl = &ssylka
+/
+prompt
+prompt
+select vp.data_nachisl
+from   vypl_pen_imp_v vp
+where  vp.ssylka_fl = &ssylka
+and    vp.data_nachisl between to_date(&start_date, 'yyyymmdd') and to_date(&end_date, 'yyyymmdd')
+group by vp.data_nachisl
+order by vp.data_nachisl
+/

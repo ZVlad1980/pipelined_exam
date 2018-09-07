@@ -1867,7 +1867,7 @@ create or replace package body import_assignments_pkg is
       serv_doc,
       serv_date,
       comments
-    ) select /*+ parallel(4)*/ assignment_seq.nextval,
+    ) select /*+ parallel(5)*/ assignment_seq.nextval,
              tas.fk_pay_order,
              pa.fk_contract,
              case 
