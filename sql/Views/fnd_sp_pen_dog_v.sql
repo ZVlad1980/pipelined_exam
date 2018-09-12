@@ -121,14 +121,6 @@ create or replace view fnd.sp_pen_dog_v as
          lead(pd.data_nach_vypl - 1) over(partition by pd.ssylka order by pd.data_nach_vypl) data_okon_vypl,
          pd.nach_vypl_pen lspv_nach_vypl_pen,
          pd.data_okon_vypl pd_data_okon_vypl,
-         /*
-         pd.nach_vypl_pen,
-         pd.okon_vypl_pen,
-         pd.data_nach_vypl, 
-         pd.data_okon_vypl, 
-         lead(pd.data_nach_vypl - 1) over(partition by pd.ssylka order by pd.data_nach_vypl) data_okon_vypl_next,
-         lead(pd.nach_vypl_pen - 1) over(partition by pd.ssylka order by pd.nach_vypl_pen) nach_vypl_pen_next,
-         */
          pd.razm_pen, 
          pd.delta_pen, 
          pd.delta_pere, 
@@ -155,8 +147,7 @@ create or replace view fnd.sp_pen_dog_v as
          pd.cntr_print_date,
          pd.cntr_date
   from   w_pen_dog pd
-  where  pd.shema_dog in (1,2,3,4,5,6,8)
-  --and    pd.nom_vkl <> 1001
+  where  pd.nom_vkl <> 1001
 /
 grant select on sp_pen_dog_v to gazfond
 /

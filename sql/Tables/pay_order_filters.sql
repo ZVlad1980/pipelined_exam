@@ -1,7 +1,8 @@
 create table pay_order_filters (
   id int
     default pay_order_filter_seq.nextval
-    constraint pay_order_filters_pk primary key,
+    constraint pay_order_filters_pk primary key
+    using index tablespace  GFNDINDX,
   fk_pay_order int not null,
   filter_code  varchar2(10)
     constraint pay_order_filter_code_chk 
