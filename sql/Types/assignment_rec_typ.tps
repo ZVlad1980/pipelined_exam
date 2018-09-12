@@ -16,7 +16,13 @@ create or replace type assignment_rec_typ as object
   paydays               number,
   addendum_from_date    date,
   last_pay_date         date,
-  
+  effective_date        date,
+  expiration_date       date,
+  account_balance       number,
+  total_amount          number,
+  pension_amount        number,
+  is_ips                varchar2(1),
+  scheme_type           varchar2(10),
   constructor function assignment_rec_typ return self as result
 )
 /

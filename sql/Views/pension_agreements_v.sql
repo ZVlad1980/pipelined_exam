@@ -16,13 +16,16 @@ create or replace view pension_agreements_v as
          pa.amount pa_amount,
          coalesce(pa.expiration_date, to_date(99991231, 'yyyymmdd')) last_pay_date,
          pa.creation_date,
-         pa.last_update
+         pa.last_update,
+         bcn.fk_cntr_type                            fk_base_cntr_type,
+         bcn.fk_scheme                               fk_base_scheme
   from   pension_agreements pa,
          contracts          cn,
          contracts          bcn
   where  1 = 1
   and    bcn.fk_document = pa.fk_base_contract
   and    pa.fk_contract = cn.fk_document
+  and    bcn.fk_scheme in (1, 2, 3, 4, 5, 6, 8)
   and    cn.fk_scheme in (1, 2, 3, 4, 5, 6, 8)
   and    cn.fk_cntr_type = 6
 /
