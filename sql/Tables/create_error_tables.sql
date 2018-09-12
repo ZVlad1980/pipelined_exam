@@ -2,6 +2,7 @@ declare
   l_list_tbl sys.odcivarchar2list := 
     sys.odcivarchar2list(
       'ASSIGNMENTS                    ',
+      'ACCOUNTS_BALANCE               ',
       'DOCUMENTS                      ERR$_IMP_DOCUMENTS',
       'CONTRACTS                      ERR$_IMP_CONTRACTS',
       'PENSION_AGREEMENTS             ERR$_IMP_PENSION_AGREEMENTS',
