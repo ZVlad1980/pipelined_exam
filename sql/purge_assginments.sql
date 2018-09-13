@@ -12,9 +12,3 @@ alter table DEBT_WITHHOLDINGS add constraint DEBT_WH_ASSIGNMENT_FK foreign key (
 delete from pay_orders;
 commit;
 /
-select *
-from   user_constraints d
-where  d.r_owner = 'GAZFOND_PN'
-and    d.r_constraint_name = 'ASSIGNMENT_PK'
-and    d.
-/
