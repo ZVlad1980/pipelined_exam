@@ -39,8 +39,8 @@ declare
 begin
   for i in 1..l_list_tbl.count loop
     create_err_table(
-      p_table_name   => regexp_substr(l_list_tbl(i), '[^ ]+', 1, 1),
-      p_err_tbl_name => regexp_substr(l_list_tbl(i), '[^ ]+', 1, 2)
+      p_table_name   => upper(regexp_substr(l_list_tbl(i), '[^ ]+', 1, 1)),
+      p_err_tbl_name => upper(regexp_substr(l_list_tbl(i), '[^ ]+', 1, 2))
     );
   end loop;
 end;

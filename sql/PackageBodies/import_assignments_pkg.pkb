@@ -1768,22 +1768,65 @@ create or replace package body import_assignments_pkg is
     p_to_date   date
   ) is
   begin
-    
-    merge into transform_pa_assignments tas
-    using (select  trunc(vp.data_op) date_op
-           from   fnd.vypl_pen_imp_v vp
-           where  vp.data_op between p_from_date and p_to_date
-           group by vp.data_op
-           order by vp.data_op
+    merge into transform_po tpo
+    using (select po.ssylka_doc, 
+                  po.operation_date, 
+                  po.payment_period, 
+                  po.half_month, 
+                  po.fk_document, 
+                  po.flag_usage, 
+                  po.rn, 
+                  po.max_half_month
+           from   fnd.reer_doc_ngpf_po_v po
           ) u
-    on    (tas.date_op = u.date_op)
+    on    (tpo.ssylka_doc = u.ssylka_doc)
     when not matched then
-      insert(date_op, import_id, fk_pay_order)
-      values(u.date_op, p_import_id, document_seq.nextval)
+      insert(ssylka_doc, operation_date, payment_period, half_month, fk_document, flag_usage, rn, max_half_month)
+        values(u.ssylka_doc, u.operation_date, u.payment_period, u.half_month, u.fk_document, u.flag_usage, u.rn, u.max_half_month)
+    ;
+    put('transform_po: Добавлено ' || sql%rowcount || ' записей');
+    --
+    merge into transform_pa_assignments tas
+    using (with w_pocards as (
+             select  trunc(vp.data_op) date_op, 
+                     case when vp.ssylka_doc in (13906, 38132, 245849, 325969) then vp.ssylka_doc end ssylka_doc
+             from    fnd.vypl_pen_imp_v vp
+             where   vp.data_op between p_from_date and p_to_date
+             group by vp.data_op, case when vp.ssylka_doc in (13906, 38132, 245849, 325969) then vp.ssylka_doc end
+           )
+           select poc.date_op,
+                  poc.ssylka_doc,
+                  po.fk_document
+           from   w_pocards              poc
+           left join transform_po po
+           on     po.rn = 1  
+           and    po.half_month = 
+                    case
+                      when po.flag_usage = 2 then po.half_month
+                      when poc.date_op < to_date(19980401, 'yyyymmdd') or po.max_half_month = 1 then 1
+                      when extract(day from poc.date_op) > 15 then 2
+                      else 1
+                    end
+           and    po.payment_period = case po.flag_usage when 1 then trunc(poc.date_op, 'MM') else po.payment_period end
+           and    po.ssylka_doc = coalesce(poc.ssylka_doc, po.ssylka_doc)
+           and    po.flag_usage = case when poc.ssylka_doc is null then 1 else 2 end
+          ) u
+    on    (tas.date_op = u.date_op and nvl(tas.ssylka_doc, -1) = nvl(u.ssylka_doc, -1))
+    when not matched then
+      insert(date_op, import_id, fk_pay_order, ssylka_doc)
+      values(u.date_op, p_import_id, u.fk_document, u.ssylka_doc)
     when matched then
       update set
         tas.import_id = case tas.state when 'N' then p_import_id else tas.import_id end
     ;
+    put('transform_pa_assignments: обработано ' || sql%rowcount || ' записей');
+    
+    --Выделим ID для несвязанных PO (если таковые присутствуют)
+    update transform_pa_assignments tpa
+    set    tpa.fk_pay_order = document_seq.nextval
+    where  tpa.fk_pay_order is null
+    and    tpa.import_id = p_import_id;
+    put('transform_pa_assignments: выделены новые ID для ' || sql%rowcount || ' PAY_ORDERS');
     
   exception
     when others then
@@ -1805,23 +1848,30 @@ create or replace package body import_assignments_pkg is
     insert all
       when document_id is null then
         into documents(id, doc_date, title, is_accounting_doc)
-        values (fk_pay_order, date_op, 'Импорт начислений FND, ' || to_char(date_op, 'dd.mm.yyyy'), 0)
+        values (fk_pay_order, operation_date, 'Импорт начислений FND, ' || to_char(operation_date, 'dd.mm.yyyy'), 0)
         log errors into ERR$_IMP_DOCUMENTS (p_err_tag) reject limit unlimited
       when po_fk_pay_order is null then
         into pay_orders(fk_document, payment_period, operation_date, payment_freqmask, scheduled_date, calculation_date, fk_pay_order_type)
-        values(fk_pay_order, trunc(date_op, 'MM'), date_op, GC_PAYMENT_FREQMASK, trunc(sysdate), sysdate, GC_PO_TYP_PENS)
+        values(fk_pay_order, trunc(operation_date, 'MM'), operation_date, GC_PAYMENT_FREQMASK, operation_date, operation_date, GC_PO_TYP_PENS)
         log errors into ERR$_IMP_PAY_ORDERS (p_err_tag) reject limit unlimited
-    select d.id           document_id,
-           po.fk_document po_fk_pay_order,
-           fk_pay_order,
-           date_op
-    from   transform_pa_assignments tas,
+    select tas.fk_pay_order,
+           tas.operation_date,
+           d.id document_id,
+           po.fk_document po_fk_pay_order
+    from   (select tas.fk_pay_order,
+                   coalesce(tpo.operation_date, tas.date_op) operation_date
+            from   transform_pa_assignments tas,
+                   transform_po             tpo
+            where  tpo.fk_document(+) = tas.fk_pay_order
+            and    tas.import_id = p_import_id
+            group by tas.fk_pay_order, coalesce(tpo.operation_date, tas.date_op)
+           ) tas,
            documents                d,
            pay_orders               po
     where  1=1
     and    po.fk_document(+) = tas.fk_pay_order
     and    d.id(+) = tas.fk_pay_order
-    and    tas.import_id = p_import_id;
+    ;
     
     if is_exists_error('ERR$_IMP_DOCUMENTS', p_err_tag) or is_exists_error('ERR$_IMP_PAY_ORDERS', p_err_tag) then
       fix_exception($$PLSQL_LINE, 'create_pay_orders(' || p_import_id || '): ' ||
@@ -1850,7 +1900,7 @@ create or replace package body import_assignments_pkg is
     --put('Импорт начислений отключен!!! Не закончена логика определения даты и типа начисления (для однопериодных)');    return;
     l_err_tag := p_err_tag || '#' || to_char(p_period, 'yyyymmdd');
     
-    insert into assignments(
+    insert /*+ parallel(4)*/ into assignments(
       id,
       fk_doc_with_action,
       fk_doc_with_acct,
@@ -1867,12 +1917,18 @@ create or replace package body import_assignments_pkg is
       serv_doc,
       serv_date,
       comments
-    ) select /*+ parallel(5)*/ assignment_seq.nextval,
+    ) with w_sspv as (
+        select /*+ materialize*/
+               acc.fk_scheme,
+               acc.id fk_sspv_id
+        from   accounts acc
+        where  acc.fk_acct_type = 4
+      ) select /*+ parallel(4)*/ assignment_seq.nextval,
              tas.fk_pay_order,
              pa.fk_contract,
              case 
-               when pa.fk_scheme in (1, 6) or (pa.fk_scheme = 5 and vp.data_nachisl >= vp.data_perevoda_5_cx) then
-                 import_assignments_pkg.get_sspv_id(pa.fk_scheme)
+               when pa.fk_scheme in (1, 6) or (pa.fk_scheme = 5 and vp.data_op >= vp.data_perevoda_5_cx) then
+                 sspv.fk_sspv_id
                else pa.fk_debit
              end fk_debit,
              pa.fk_credit,
@@ -1907,8 +1963,10 @@ create or replace package body import_assignments_pkg is
                and    trunc(vp2.data_nachisl, 'MM') = trunc(vp.data_nachisl, 'MM')
                and    vp2.ssylka_fl = vp.ssylka_fl
                and    vp2.data_op <= vp.data_op
-             ) dbl
+             ) dbl,
+             w_sspv sspv
       where  1=1
+      and    sspv.fk_scheme(+) = pa.fk_scheme
       and    pa.fk_contract = vp.ref_kodinsz
       and    vp.data_op = tas.date_op
       and    trunc(tas.date_op, 'MM') = p_period --to_date(&p_period, 'yyyymmdd')--p_period
@@ -1919,14 +1977,9 @@ create or replace package body import_assignments_pkg is
     put('За период ' || to_char(p_period, 'dd.mm.yyyy') || ' импортировано ' || sql%rowcount || ' начислений');
     
     if is_exists_error('ERR$_IMP_ASSIGNMENTS', l_err_tag) then
-      fix_exception($$PLSQL_LINE, 'import_assignments_period (' || to_char(p_period, 'dd.mm.yyyy') || ',' || p_import_id || ',' || p_err_tag || '): ' ||
+      put('import_assignments_period (' || to_char(p_period, 'dd.mm.yyyy') || ',' || p_import_id || ',' || p_err_tag || '): ' ||
         ' есть ошибки импорта, см. ERR$_IMP_ASSIGNMENTS.ORA_ERR_TAG$ = ' || l_err_tag
       );
-      /*
-      TODO: owner="V.Zhuravov" created="27.07.2018"
-      text="raise отключен на период тестирования"
-      */
-      --raise program_error;
     end if;
     
   exception
@@ -2071,9 +2124,8 @@ create or replace package body import_assignments_pkg is
       p_to_date   => l_to_date
     );
     commit;
-    --return;
-    create_pay_orders(p_import_id => l_import_id, p_err_tag => l_err_tag);
     
+    create_pay_orders(p_import_id => l_import_id, p_err_tag => l_err_tag);
     commit;
     
     import_assignments(p_import_id => l_import_id, p_err_tag => l_err_tag);
