@@ -84,7 +84,7 @@ create table transform_po(
 /
 comment on table transform_po is 'Связь FND.REER_DOC_NGPF и PAY_ORDERS';
 comment on column transform_po.ssylka_doc is 'FND.REER_DOC_NGPF.SSYLKA, только для FLAG_USAGE=2';
-comment on column transform_po.flag_usage is '1-обычный PO, 2-PO исключение'
+comment on column transform_po.flag_usage is '1-обычный PO, 2-PO исключение';
 comment on column transform_po.rn             is 'Порядковый номер PO в периоде по дате операции';
 comment on column transform_po.max_half_month is 'Максимальный номер полумесяца (1 или 2)';
 comment on column transform_po.operation_date is 'Дата операции для PAY_ORDERS';
