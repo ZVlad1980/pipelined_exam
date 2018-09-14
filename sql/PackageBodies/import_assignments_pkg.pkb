@@ -699,11 +699,9 @@ create or replace package body import_assignments_pkg is
   end create_pay_decisions;
   
   /**
-   * Процедура приводит периодичность выплат в договорах GAZFOND в соотстветствие с FND
+   * Процедура обновляет периодичность выплат в договорах GAZFOND в соотстветствие с FND
    */
-  procedure update_period_code(
-    p_commit boolean default true
-  ) is
+  procedure update_pa_period_code is
     cursor l_pa_cur is
       select pa.fk_contract, coalesce(pd.id_period_payment, 1) period_code
       from   pension_agreements_v  pa,
@@ -728,18 +726,131 @@ create or replace package body import_assignments_pkg is
       update pension_agreements pa
       set    pa.period_code = l_pa_tbl(i).period_code
       where  pa.fk_contract = l_pa_tbl(i).fk_contract;
-    
-    if p_commit then 
-      commit;
-    end if;
   
   exception
     when others then
-      rollback;
-      fix_exception($$PLSQL_LINE, 'update_period_code');
+      fix_exception($$PLSQL_LINE, 'update_pa_period_code');
       raise;
-  end update_period_code;
+  end update_pa_period_code;
   
+  /**
+   * Процедура обновляет статус и период действия пенс.соглашений
+   */
+  procedure update_pa_state is
+    cursor l_pa_cur is
+      select pa.fk_contract, 
+             case
+               when pd.status_pen in ('и', 'п') then 1
+               when pd.status_pen = 'о' then 2
+               else 0
+             end state,
+             case pd.source_table
+               when 'SP_PEN_DOG_ARH' then 1
+               else 0
+             end isarhv
+      from   pension_agreements_v  pa,
+             transform_contragents tc,
+             fnd.sp_pen_dog_v      pd
+      where  1=1
+        and  (
+               (
+                 (pd.status_pen in ('и', 'п') and pa.state <> 1)
+                or
+                 (pd.status_pen not in ('и', 'п') and pa.state = 1)
+               )
+              or
+               (
+                 (pd.source_table = 'SP_PEN_DOG_ARH' and pa.isarhv = 0)
+                or
+                 (pd.source_table = 'SP_PEN_DOG' and pa.isarhv = 1)
+               )
+             )
+      and    pd.data_nach_vypl = pa.effective_date
+      and    pd.ssylka = tc.ssylka_fl
+      and    tc.fk_contract = pa.fk_base_contract;
+    type l_pa_tbl_typ is table of l_pa_cur%rowtype;
+    l_pa_tbl l_pa_tbl_typ;
+  begin
+    open l_pa_cur;
+    fetch l_pa_cur
+      bulk collect into l_pa_tbl;
+    close l_pa_cur;
+    
+    put('update_pa_state: ' || l_pa_tbl.count);
+    
+    forall i in 1..l_pa_tbl.count
+      update pension_agreements pa
+      set    pa.state  = l_pa_tbl(i).state,
+             pa.isarhv = l_pa_tbl(i).isarhv
+      where  pa.fk_contract = l_pa_tbl(i).fk_contract;
+
+  
+  exception
+    when others then
+      fix_exception($$PLSQL_LINE, 'update_pa_state');
+      raise;
+  end update_pa_state;
+  
+  /**
+   * Процедура обновляет статус и периодо действия пенс.соглашений
+   */
+  procedure update_pa_expiration_date is
+    cursor l_pa_cur is
+      select pa.fk_contract, 
+             pd.pd_data_okon_vypl expiration_date
+      from   pension_agreements_v  pa,
+             transform_contragents tc,
+             fnd.sp_pen_dog_v      pd
+      where  1=1
+      and    coalesce(pa.expiration_date, sysdate) <> coalesce(pd.pd_data_okon_vypl, sysdate)
+      and    pd.data_nach_vypl = pa.effective_date
+      and    pd.ssylka = tc.ssylka_fl
+      and    tc.fk_contract = pa.fk_base_contract;
+    type l_pa_tbl_typ is table of l_pa_cur%rowtype;
+    l_pa_tbl l_pa_tbl_typ;
+  begin
+    open l_pa_cur;
+    fetch l_pa_cur
+      bulk collect into l_pa_tbl;
+    close l_pa_cur;
+    
+    put('update_pa_expiration_date: ' || l_pa_tbl.count);
+    
+    forall i in 1..l_pa_tbl.count
+      update pension_agreements pa
+      set    pa.expiration_date = l_pa_tbl(i).expiration_date
+      where  pa.fk_contract = l_pa_tbl(i).fk_contract;
+
+  
+  exception
+    when others then
+      fix_exception($$PLSQL_LINE, 'update_pa_expiration_date');
+      raise;
+  end update_pa_expiration_date;
+  
+  /**
+   * Процедура обновляет состояние, срок действия и периодичность выплат пенсионных соглашений
+   */
+  procedure update_pension_agreements(
+    p_commit boolean default true
+  ) is
+  begin
+    
+    update_pa_period_code;
+    update_pa_state;
+    update_pa_expiration_date;
+    if p_commit then
+      commit;
+    end if;
+  exception
+    when others then
+      if p_commit then
+        rollback;
+      end if;
+      
+      fix_exception($$PLSQL_LINE, 'update_pa_state');
+      raise;
+  end update_pension_agreements;
   /**
    * Процедура импорта пенс.соглашений, по которым были начисления в заданном периоде (мин. квант - месяц)
    *   Поддерживается многоразовый запуск за один период
@@ -837,7 +948,7 @@ create or replace package body import_assignments_pkg is
       commit;
     end if;
     
-    update_period_code(p_commit);
+    update_pension_agreements(p_commit);
     /*
     gather_table_stats('CONTRACTS');
     gather_table_stats('DOCUMENTS');
@@ -1039,7 +1150,7 @@ create or replace package body import_assignments_pkg is
     end if;
     --
     
-    gather_table_stats('PENSION_AGREEMENT_ADDENDUMS');
+    --gather_table_stats('PENSION_AGREEMENT_ADDENDUMS');
     
   exception
     when others then
@@ -2141,6 +2252,57 @@ create or replace package body import_assignments_pkg is
       fix_exception($$PLSQL_LINE, 'import_assignments(' || to_char(p_from_date, 'dd.mm.yyyy') || ',' || to_char(p_from_date, 'dd.mm.yyyy') || ')');
       raise;
   end import_assignments;
+  
+  /**
+   * Процедура синхронизации данных FND -> GAZFOND
+   *   за период
+   *
+   *  - пенсионные соглашения и их статус, даты начала и окончания выплат
+   *  - изменения пенс.соглашений + 0 изменения
+   *  - счета ИПС и ЛСПВ
+   *  - ограничения, дозагрузка и статусы
+   *  - начисления, если p_import_assignemnts = TRUE
+   *
+   *  begin
+   *    log_pkg.enable_output;
+   *    import_assignments_pkg.synchronize(
+   *      p_from_date => to_date(20180601, 'yyyymmdd'),
+   *      p_to_date   => to_date(20180930, 'yyyymmdd')
+   *    );
+   *  exception
+   *    when others then
+   *      log_pkg.show_errors_all;
+   *  end;
+   *
+   */
+  procedure synchronize(
+    p_from_date          date,
+    p_to_date            date,
+    p_import_assignemnts boolean default false,
+    p_commit             boolean default true
+  ) is
+    procedure put_(p_str varchar2) is
+    begin
+      put(p_str || ', at ' || to_char(sysdate, 'dd.mm.yyyy hh24:mi:ss'));
+    end put_;
+  begin
+    --
+    put_('Start import PA');
+    import_pension_agreements(p_from_date, p_to_date, p_commit => p_commit);
+    put_('Start create accounts');
+    create_accounts(p_from_date, p_to_date, p_commit => p_commit);
+    put_('Start import addendums');
+    import_pa_addendums(p_commit => p_commit);
+    put_('Start import restrinctions');
+    import_pay_restrictions(p_commit => p_commit);
+    put_('Complete');
+    --
+  exception
+    when others then
+      rollback;
+      fix_exception($$PLSQL_LINE, 'synchronize(' || to_char(p_from_date, 'dd.mm.yyyy') || ', ' || to_char(p_to_date, 'dd.mm.yyyy') || ', ' || case when p_import_assignemnts then 'Y' else 'N' end || ')');
+      raise;
+  end synchronize;
   
 end import_assignments_pkg;
 /

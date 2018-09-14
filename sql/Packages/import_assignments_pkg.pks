@@ -33,9 +33,9 @@ create or replace package import_assignments_pkg is
   );
   
   /**
-   * Процедура приводит периодичность выплат в договорах GAZFOND в соотстветствие с FND
+   * Процедура обновляет состояние, срок действия и периодичность выплат пенсионных соглашений
    */
-  procedure update_period_code(
+  procedure update_pension_agreements(
     p_commit boolean default true
   );
   
@@ -138,6 +138,36 @@ create or replace package import_assignments_pkg is
     p_from_date date,
     p_to_date   date
   );
+  
+  /**
+   * Процедура синхронизации данных FND -> GAZFOND
+   *   за период
+   *
+   *  - пенсионные соглашения и их статус, даты начала и окончания выплат
+   *  - изменения пенс.соглашений + 0 изменения
+   *  - счета ИПС и ЛСПВ
+   *  - ограничения, дозагрузка и статусы
+   *  - начисления, если p_import_assignemnts = TRUE
+   *
+   *  begin
+   *    log_pkg.enable_output;
+   *    import_assignments_pkg.synchronize(
+   *      p_from_date => to_date(20180601, 'yyyymmdd'),
+   *      p_to_date   => to_date(20180930, 'yyyymmdd')
+   *    );
+   *  exception
+   *    when others then
+   *      log_pkg.show_errors_all;
+   *  end;
+   *
+   */
+  procedure synchronize(
+    p_from_date          date,
+    p_to_date            date,
+    p_import_assignemnts boolean default false,
+    p_commit             boolean default true
+  );
+  
   
   function get_sspv_id(
     p_fk_scheme accounts.fk_scheme%type
