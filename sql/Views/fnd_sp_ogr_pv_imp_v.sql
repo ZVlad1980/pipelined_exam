@@ -15,10 +15,11 @@ create or replace view sp_ogr_pv_imp_v as
          op.real_nach_deistv,
          op.real_okon_deistv,
          pd.data_nach_vypl,
+         pd.status_pen,
          case
            when op.source_table = 'SP_OGR_PV_ARH' or op.okon_deistv <= op.nach_deistv
              then 'Y'
-           when op.kod_ogr_pv = 3 and pd.dog_rn = pd.dog_cnt and 
+           when op.kod_ogr_pv = 3 and --pd.dog_rn = pd.dog_cnt and 
                 (
                   (
                     op.okon_deistv is not null 
@@ -26,7 +27,7 @@ create or replace view sp_ogr_pv_imp_v as
                       select count(distinct vp.data_nachisl)
                       from   vypl_pen vp
                       where  vp.ssylka_fl = op.ssylka_fl
-                      and    vp.data_nachisl between trunc(op.nach_deistv, 'MM') and last_day(op.okon_deistv)
+                      and    vp.data_nachisl between trunc(op.nach_deistv, 'MM') and last_day(least(op.okon_deistv, pd.to_date))
                     ) = months_between(trunc(op.okon_deistv, 'MM'), trunc(op.nach_deistv, 'MM') + 1)
                    )
                    or
@@ -46,9 +47,9 @@ create or replace view sp_ogr_pv_imp_v as
          count(1)over(partition by op.ssylka_fl, pd.data_nach_vypl, op.nach_deistv) cnt,
          row_number()over(
            partition by op.ssylka_fl, pd.data_nach_vypl, op.nach_deistv 
-           order by case op.source_table when 'SP_OGR_PV' then 2 else 1 end, --активные в конце
-                    op.nach_deistv - coalesce(op.okon_deistv, to_date(99991231, 'yyyymmdd')), --по периоду действия
-                    op.kod_ogr_pv, --для стабилизации результата
+           order by case op.source_table when 'SP_OGR_PV' then 2 else 1 end,
+                    op.nach_deistv - coalesce(op.okon_deistv, to_date(99991231, 'yyyymmdd')),
+                    op.kod_ogr_pv,
                     op.real_nach_deistv
          ) rn
   from   sp_ogr_pv_rev_v  op,
