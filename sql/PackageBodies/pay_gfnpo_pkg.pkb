@@ -613,16 +613,12 @@ from   (
       begin
         --
         if l_rec.fk_debit is null then
-          /*if g_scheme_sspv.exists(l_rec.fk_scheme) then
-            l_rec.fk_debit := g_scheme_sspv(l_rec.fk_scheme);
-          else--*/
             fix_exception($$PLSQL_LINE, 'get_assignments_calc', 'Ќе определен счет-источник дл€ начислени€ пенсии');
             raise e_continue;
-          --end if;
         end if;
         --
         if l_rec.is_ips = 'Y' and l_rec.total_amount > l_rec.account_balance then
-          if l_rec.total_amount - l_rec.amount > l_rec.account_balance then
+          if l_rec.total_amount - l_rec.amount >= l_rec.account_balance then
             if l_rec.scheme_type = GC_SCH_REST then
               raise e_pass;
             else
