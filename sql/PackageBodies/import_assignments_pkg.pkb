@@ -829,6 +829,49 @@ create or replace package body import_assignments_pkg is
   end update_pa_expiration_date;
   
   /**
+   * Процедура обновляет дату перехода с ИПС на ССПВ для 5 схемы
+   */
+  procedure update_transfer_date is
+    cursor l_pa_cur is
+      select pp.id                  fk_pay_portfolio, 
+             pd.data_perevoda_5_cx  transfer_date
+      from   pension_agreements_v  pa,
+             pay_decisions         pdd,
+             pay_portfolios        pp,
+             transform_contragents tc,
+             fnd.sp_pen_dog_v      pd
+      where  1=1
+      and    coalesce(pp.transfer_date, sysdate) <> coalesce(pd.data_perevoda_5_cx, sysdate)
+      and    pd.data_nach_vypl = pa.effective_date
+      and    pd.ssylka = tc.ssylka_fl
+      and    tc.fk_contract = pa.fk_base_contract
+      and    pp.id = pdd.fk_pay_portfolio
+      and    pdd.fk_pension_agreement = pa.fk_contract
+      and    pa.fk_scheme = 5
+      ;
+    type l_pa_tbl_typ is table of l_pa_cur%rowtype;
+    l_pa_tbl l_pa_tbl_typ;
+  begin
+    open l_pa_cur;
+    fetch l_pa_cur
+      bulk collect into l_pa_tbl;
+    close l_pa_cur;
+    
+    put('update_pa_expiration_date: ' || l_pa_tbl.count);
+    
+    forall i in 1..l_pa_tbl.count
+      update pay_portfolios pp
+      set    pp.transfer_date = l_pa_tbl(i).transfer_date
+      where  pp.id = l_pa_tbl(i).fk_pay_portfolio;
+
+  
+  exception
+    when others then
+      fix_exception($$PLSQL_LINE, 'update_transfer_date');
+      raise;
+  end update_transfer_date;
+  
+  /**
    * Процедура обновляет состояние, срок действия и периодичность выплат пенсионных соглашений
    */
   procedure update_pension_agreements(
@@ -839,6 +882,7 @@ create or replace package body import_assignments_pkg is
     update_pa_period_code;
     update_pa_state;
     update_pa_expiration_date;
+    update_transfer_date;
     if p_commit then
       commit;
     end if;

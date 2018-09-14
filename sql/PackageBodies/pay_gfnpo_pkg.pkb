@@ -1142,7 +1142,8 @@ from   (
     using (
             select /*+ parallel(4)*/
                    pa.fk_debit,
-                   case
+                   /*
+                   case --выражение на будущее, когда баланс будет по GF
                      when pa.fk_scheme = 5 then
                        (
                          select pp.transfer_date
@@ -1151,21 +1152,27 @@ from   (
                          where  pp.id = pd.fk_pay_portfolio
                          and    pd.fk_pension_agreement = pa.fk_contract
                        )
-                   end transfer_date,
-                   bb.amount
+                   end transfer_date,*/
+                   ib.transfer_date,
+                   ib.amount
             from   (
                     select /*+ no_merge*/
-                           ib.ref_kodinsz             fk_pension_agreement,
+                           ib.ssylka,--ref_kodinsz             fk_pension_agreement,
+                           ib.data_nach_vypl,
+                           ib.data_perevoda_5_cx      transfer_date,
                            sum(ib.amount)             amount
                     from   fnd.sp_ips_balances ib
                     where  ib.date_op < p_update_date
-                    group by ib.ref_kodinsz
-                   ) bb,
-                   pension_agreements_active_v pa,
-                   accounts_balance ab
-            where  pa.fk_contract = bb.fk_pension_agreement
+                    group by ib.ssylka, ib.data_nach_vypl, ib.data_perevoda_5_cx
+                   ) ib,
+                   transform_contragents         tc,
+                   pension_agreements_active_v   pa,
+                   accounts_balance              ab
+            where  1 = 1
             and    ab.fk_account(+) = pa.fk_debit
-            and    coalesce(ab.amount(+), 0) <> bb.amount
+            and    pa.effective_date = ib.data_nach_vypl
+            and    pa.fk_base_contract = tc.fk_contract
+            and    tc.ssylka_fl = ib.ssylka
           ) u
     on    (b.fk_account = u.fk_debit)
     when not matched then
@@ -1173,7 +1180,8 @@ from   (
         values(u.fk_debit, u.transfer_date, u.amount, sysdate)
     when matched then
       update set
-        b.amount      = u.amount,
+        b.amount        = u.amount,
+        b.transfer_date = u.transfer_date,
         b.update_date = sysdate
     log errors into err$_accounts_balance (l_error_tag) reject limit unlimited;
     
