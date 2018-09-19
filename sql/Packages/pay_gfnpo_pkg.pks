@@ -4,6 +4,7 @@ create or replace package pay_gfnpo_pkg is
   -- Created : 29.06.2018 11:08:41
   -- Purpose : 
 
+
   /**
    * WRAP функция для процедуры calc_assignments (единообразие - поддержка сущ.API (см. PAY_GFOPS_PKG)
    * заполнить таблицу начислений пенсий
@@ -17,6 +18,31 @@ create or replace package pay_gfnpo_pkg is
    * удалить начисления
    */
   function Wipe_Charges_by_PayOrder( pPayOrder in number, pOperID in number, pDoNotCommit in number default 0 ) RETURN NUMBER;
+  
+  /**
+   * Процедура чистит кэш рассчитанных пенсий
+   */
+  procedure purge_pension_hash;
+  
+  /**
+   * Функция расчета размера пенсии за заданный месяц
+   *   Вызывается при начислении пенсии, если в месяце выплат есть дробные ограничения или дробное заверешние выплат
+   * При первом использовании - почистить кеш (purge_pension_hash)
+   */
+  function get_pension(
+    p_fk_pension_agreement number, 
+    p_month_date           date
+  ) return number ;
+  
+  /**
+   * Функция возвращает количество оплачиваемых дней
+   *   Работает с кэшем g_pension_hash, если в нем нет данных - вызывает процедуру get_pension
+   * При первом использовании - почистить кеш (purge_pension_hash)
+   */
+  function get_pay_days(
+    p_fk_pension_agreement number, 
+    p_month_date           date
+  ) return number ;
   
   /**
    * Функция fill_charges_by_payorder - начисление пенсий по заданному платежному ордеру

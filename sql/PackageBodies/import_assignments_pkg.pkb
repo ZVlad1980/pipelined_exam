@@ -1018,10 +1018,7 @@ create or replace package body import_assignments_pkg is
                     rdn.kod_sr      ,
                     rdn.kod_insz
                   )               fk_base_doc,
-                  coalesce(
-                    pag.fk_debit, 
-                    import_assignments_pkg.get_sspv_id(pag.fk_scheme)
-                  )               fk_provacct,
+                  cast(null as number) fk_provacct,
                   ipd.nom_izm     serialno,
                   ipd.summa_izm   amount,
                   greatest(ipd.data_izm, pag.effective_date) alt_date_begin,
@@ -1080,7 +1077,6 @@ create or replace package body import_assignments_pkg is
     using (select pa.fk_contract,
                   pa.effective_date,
                   pa.fk_debit,
-                  case when pa.fk_scheme in (1, 5, 6) then import_assignments_pkg.get_sspv_id(pa.fk_scheme) end fk_sspv,
                   pa.pa_amount,
                   pa.creation_date
            from   pension_agreements_v pa
@@ -1091,7 +1087,6 @@ create or replace package body import_assignments_pkg is
         id,
         fk_pension_agreement,
         fk_base_doc,
-        fk_provacct,
         serialno,
         canceled,
         amount,
@@ -1101,7 +1096,6 @@ create or replace package body import_assignments_pkg is
         pension_agreement_addendum_seq.nextval,
         u.fk_contract,
         u.fk_contract,
-        coalesce(u.fk_debit, u.fk_sspv),
         0,
         0,
         u.pa_amount,
