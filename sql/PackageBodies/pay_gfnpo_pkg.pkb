@@ -374,10 +374,10 @@ create or replace package body pay_gfnpo_pkg is
                      round(pap.cnt / sum(pap.cnt)over(), 2) * 100 pct
               from   (
                         select /*+ materialize*/
-                               trunc(pap.effective_date, 'MM') payment_period,
+                               trunc(pap.calc_date, 'MM') payment_period,
                                count(1) cnt
                         from   pension_agreement_periods pap
-                        group by trunc(pap.effective_date, 'MM')
+                        group by trunc(pap.calc_date, 'MM')
                      ) pap
            ) pap
     where pap.payment_period = p_period;
@@ -397,7 +397,7 @@ create or replace package body pay_gfnpo_pkg is
     l_min_period  date;
     l_end_year    date;
   begin
-    select min(pap.effective_calc_date)
+    select min(pap.calc_date)
     into   l_min_period
     from   pension_agreement_periods_v pap;
     
@@ -462,7 +462,7 @@ create or replace package body pay_gfnpo_pkg is
     
     if l_type_cur = GC_CURTYP_SIMPLE then
       l_pa_where := chr(10) ||
-      'and  pa.effective_calc_date = po.payment_period
+      'and  pa.calc_date = po.payment_period
        and  pa.period_code = 1';
       l_months_query := l_months_query || 'trunc(po.payment_period, ''MM'') month_date,
          last_day(po.payment_period) end_month_date
@@ -479,7 +479,7 @@ create or replace package body pay_gfnpo_pkg is
          ) m';
       if l_type_cur = GC_CURTYP_COMPOUND then
         l_pa_where := chr(10) ||
-      ' and  (pa.effective_calc_date <> po.payment_period
+      ' and  (pa.calc_date <> po.payment_period
               or pa.period_code <> 1)';
       else
         null;--l_pa_query := l_pa_query || chr(10) || ' where 1=1 ';
@@ -540,7 +540,7 @@ w_sspv as (
 w_pension_agreements as (
   select /*+ materialize*/ 
      pa.fk_pension_agreement,
-     pa.effective_calc_date,
+     pa.calc_date,
      pa.fk_base_contract,
      pa.state,
      pa.period_code,
@@ -688,7 +688,7 @@ from   (
                             and    m.end_month_date <= coalesce(pr.expiration_date, m.end_month_date)
                             and    pr.fk_doc_with_acct = pa.fk_pension_agreement
                          )
-                  and    m.month_date between pa.effective_calc_date and pa.last_pay_date'
+                  and    m.month_date between pa.calc_date and pa.last_pay_date'
                   || chr(10) || '    ) pa'
                   || chr(10) || ') pa'
                   || chr(10) || 'where pa.amount <> 0'
@@ -1032,7 +1032,7 @@ from   (
       on    (pap.fk_pension_agreement = u.fk_pension_agreement)
       when matched then
         update set
-        pap.effective_date = least(u.new_effective_date, pap.effective_date)
+        pap.calc_date = least(u.new_effective_date, pap.calc_date)
       ;
     exception
       when others then
@@ -1100,8 +1100,8 @@ from   (
             ) u
       on    (pap.fk_pension_agreement = u.fk_contract)
       when not matched then
-        insert(fk_pension_agreement, effective_date, pa_effective_date)
-          values(u.fk_contract, u.effective_date, u.pa_effective_date)
+        insert(fk_pension_agreement, calc_date, check_date, pa_effective_date)
+          values(u.fk_contract, u.effective_date, u.effective_date, u.pa_effective_date)
       ;
       
       l_new_rows := sql%rowcount;
@@ -1133,17 +1133,20 @@ from   (
       l_next_year := to_date(extract(year from p_update_date) + 1 || '0101', 'yyyymmdd');
       
       update (
-               select pap.effective_date,
+               select pap.calc_date,
+                      pap.check_date,
                       pap.pa_effective_date,
-                      pa.effective_date new_pa_effective_date
+                      trunc(pa.effective_date, 'MM') new_calc_date,
+                      pa.effective_date              new_pa_effective_date
                from   pension_agreement_periods pap,
                       pension_agreements        pa
                where  1=1
                and    pap.pa_effective_date <> pa.effective_date
                and    pa.fk_contract = pap.fk_pension_agreement
              ) u
-      set    u.effective_date    = new_pa_effective_date,
-             u.pa_effective_date = new_pa_effective_date
+      set    u.calc_date         = u.new_calc_date,
+             u.check_date        = u.new_calc_date,
+      	     u.pa_effective_date = u.new_pa_effective_date
       ;
       
       merge into pension_agreement_periods pap
@@ -1160,29 +1163,27 @@ from   (
               )
               select /*+ parallel(4)*/
                      pap.fk_pension_agreement,
-                     pap.effective_date,
-                     pap.first_restriction_date
+                     pap.new_calc_date          calc_date,
+                     least(
+                         coalesce(pap.new_check_date, pap.new_calc_date),
+                         pap.new_calc_date
+                     )                          check_date
               from   (
                 select pap.fk_pension_agreement,
-                       pap.effective_date curr_effective_date,
-                       pap.first_restriction_date curr_restriction_date,
-                       coalesce(pap2.effective_date, l_next_year) effective_date,
-                       least(
-                         (select min(pr.effective_date)
+                       pap.calc_date                              curr_calc_date,
+                       pap.check_date                             curr_check_date,
+                       coalesce(pap2.new_calc_date, l_next_year)  new_calc_date,
+                       trunc((select min(pr.effective_date)
                           from   pay_restrictions pr
-                          where  1=1--pr.effective_date <= coalesce(pap.expiration_date, pr.effective_date)
+                          where  1=1
                           and    pr.fk_document_cancel is null
                           and    pr.fk_doc_with_acct = pap.fk_pension_agreement
-                         ),
-                         pap2.effective_date
-                       ) first_restriction_date
+                         ), 'MM')                                 new_check_date
                 from   pension_agreement_periods pap
                 left join
                        (
                           select pap.fk_pension_agreement,
-                                 max(pap.effective_date) curr_effective_date,
-                                 max(pap.first_restriction_date) curr_first_restriction_date,
-                                 min(m.month_date) effective_date
+                                 min(m.month_date)     new_calc_date
                           from   pension_agreement_periods pap,
                                  w_months                  m
                           where  1=1
@@ -1202,22 +1203,22 @@ from   (
                                    and    asg.paydate between m.month_date and m.end_month_date
                                    and    asg.fk_doc_with_acct = pap.fk_pension_agreement
                                  )
-                          and    m.month_date >= least(coalesce(pap.first_restriction_date, pap.effective_date), pap.effective_date)
+                          and    m.month_date >= pap.check_date
                           group by pap.fk_pension_agreement
                         ) pap2
                 on pap2.fk_pension_agreement = pap.fk_pension_agreement
               ) pap
               where (
-                      (coalesce(pap.curr_restriction_date, sysdate) <> coalesce(pap.first_restriction_date, sysdate))
+                      (pap.curr_check_date <> coalesce(pap.new_check_date,pap.new_calc_date))
                      or
-                      (pap.curr_effective_date <> pap.effective_date)
+                      (pap.curr_calc_date <> pap.new_calc_date)
                     )
             ) u
       on    (pap.fk_pension_agreement = u.fk_pension_agreement)
       when matched then
         update set
-          pap.effective_date = u.effective_date,
-          pap.first_restriction_date = u.first_restriction_date
+          pap.calc_date  = u.calc_date,
+          pap.check_date = u.check_date
       ;
       
       put('update_pa_periods: ' || sql%rowcount || ' row(s) updated');
