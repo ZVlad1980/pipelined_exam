@@ -20,9 +20,9 @@ create or replace package pay_gfnpo_pkg is
   function Wipe_Charges_by_PayOrder( pPayOrder in number, pOperID in number, pDoNotCommit in number default 0 ) RETURN NUMBER;
   
   /**
-   * Процедура чистит кэш рассчитанных пенсий
+   * Процедура чистит пакетный кэш 
    */
-  procedure purge_pension_hash;
+  procedure purge_hash_pkg;
   
   /**
    * Функция расчета размера пенсии за заданный месяц
@@ -32,7 +32,8 @@ create or replace package pay_gfnpo_pkg is
   function get_pension(
     p_fk_pension_agreement number, 
     p_month_date           date
-  ) return number ;
+  ) return number deterministic
+  parallel_enable;
   
   /**
    * Функция возвращает количество оплачиваемых дней
@@ -42,7 +43,34 @@ create or replace package pay_gfnpo_pkg is
   function get_pay_days(
     p_fk_pension_agreement number, 
     p_month_date           date
-  ) return number ;
+  ) return number deterministic
+  parallel_enable;
+    
+  /**
+   * Функция get_assignments_cur возвращает открытый курсор 
+   *   Для начислений по заданному периоду и ордеру
+   *
+   * @param p_pay_order_id  - 
+   * @param p_type_cur      - тип курсора: GC_CURTYP_SIMPLE / GC_CURTYP_COMPOUND / GC_CURTYP_ALL (def)
+   * @param p_parallel      - степень параллелизма
+   * @param p_contract_type - тип обрабатываемых контрактов: GC_CT_ALL(def) / GC_CT_PERIOD / GC_CT_LIFE
+   *
+   */
+  function get_assignments_cur(
+    p_pay_order_id     pay_orders.fk_document%type,
+    p_type_cur         varchar2 default null,
+    p_contract_type    varchar2 default null,
+    p_parallel         number   default 4
+  ) return sys_refcursor;
+  
+  /**
+   * внутреннее использование
+   */
+  function get_assignments_calc(
+    p_cursor in sys_refcursor
+  ) return assignments_tbl_typ
+    pipelined
+    parallel_enable(partition p_cursor by any);
   
   /**
    * Функция fill_charges_by_payorder - начисление пенсий по заданному платежному ордеру
@@ -61,15 +89,6 @@ create or replace package pay_gfnpo_pkg is
     p_oper_id      number,
     p_commit       boolean default true
   );
-  
-  /**
-   *
-   */
-  function get_assignments_calc(
-    p_cursor in sys_refcursor
-  ) return assignments_tbl_typ
-    pipelined
-    parallel_enable(partition p_cursor by any);
   
   /**
    *

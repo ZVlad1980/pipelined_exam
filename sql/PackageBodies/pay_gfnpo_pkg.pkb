@@ -11,8 +11,11 @@ create or replace package body pay_gfnpo_pkg is
   
   GC_ASG_PAY_CODE        constant number := 5000;  -- начисление, код выплата пенсии
   
-  GC_CT_TERM             constant varchar2(10) := 'TERM';
-  GC_CT_LIFE             constant varchar2(10) := 'LIFE';
+  --Типы соглашений для начисления пенсий
+  GC_CT_ALL              constant varchar2(10) := 'ALL';    --все
+  GC_CT_PERIOD           constant varchar2(10) := 'PERIOD'; --срочные
+  GC_CT_LIFE             constant varchar2(10) := 'LIFE';   --по жизненно
+  
   GC_ASG_OP_TYPE         constant number := 2;      -- начисление, код типа для записей начисления пенсии
   
   GC_PO_TYPE_PEN         constant number := 5;      --платежка по пенсии
@@ -66,6 +69,10 @@ create or replace package body pay_gfnpo_pkg is
   type g_pension_tbl_typ is table of g_pension_rec_typ index by varchar2(30);
   --коллекция для кеширования спец. расчета пенсий
   g_pension_tbl g_pension_tbl_typ;
+  
+  type g_num_varchar_hash_typ is table of varchar2(30) index by pls_integer;
+  
+  g_filters g_num_varchar_hash_typ;
   
   procedure init_exception(
     p_log_mark  number default G_LOG_MARK,
@@ -226,12 +233,13 @@ create or replace package body pay_gfnpo_pkg is
   end get_pay_order;
   
   /**
-   * Процедура чистит кэш рассчитанных пенсий
+   * Процедура чистит пакетный кэш 
    */
-  procedure purge_pension_hash is
+  procedure purge_hash_pkg is
   begin
     g_pension_tbl.delete;
-  end purge_pension_hash;
+    g_filters.delete;
+  end purge_hash_pkg;
   
   /**
    */
@@ -250,7 +258,9 @@ create or replace package body pay_gfnpo_pkg is
     p_ind_hash             varchar2,
     p_fk_pension_agreement number, 
     p_month_date           date
-  ) is
+  ) 
+  parallel_enable
+  is
   begin
     put('calc_pension');
     with w_pension_agreement as (
@@ -301,7 +311,10 @@ create or replace package body pay_gfnpo_pkg is
   function get_pension(
     p_fk_pension_agreement number, 
     p_month_date           date
-  ) return number  is
+  ) return number
+  deterministic
+  parallel_enable
+  is
     l_ind    varchar2(30);
   begin
     l_ind := get_index_pension_hash(p_fk_pension_agreement, p_month_date);
@@ -325,7 +338,10 @@ create or replace package body pay_gfnpo_pkg is
   function get_pay_days(
     p_fk_pension_agreement number, 
     p_month_date           date
-  ) return number  is
+  ) return number
+  deterministic
+  parallel_enable
+  is
     l_ind    varchar2(30);
   begin
     l_ind := get_index_pension_hash(p_fk_pension_agreement, p_month_date);
@@ -376,29 +392,55 @@ create or replace package body pay_gfnpo_pkg is
    *
    */
   function get_max_depth(
-    p_year number
+    p_pay_order_id number
   ) return number is
     l_min_period  date;
+    l_end_year    date;
   begin
     select min(pap.effective_calc_date)
     into   l_min_period
     from   pension_agreement_periods_v pap;
     
-    return months_between(to_date(p_year || '1201', 'yyyymmdd'), l_min_period) + 1;
+    select to_date(to_char(extract(year from po.payment_period)) || '1231', 'yyyymmdd')
+    into   l_end_year
+    from   pay_orders po
+    where  po.fk_document = p_pay_order_id;
+    
+    return round(months_between(l_end_year, l_min_period) + 1);
     
   end get_max_depth;
   
+  function get_filter_code(
+    p_pay_order_id     pay_orders.fk_document%type
+  ) return varchar2 is
+  begin
+    
+      if not g_filters.exists(p_pay_order_id) then
+        select max(pof.filter_code)
+        into   g_filters(p_pay_order_id)
+        from   pay_order_filters pof
+        where  pof.fk_pay_order = p_pay_order_id;
+      end if;
+      
+      return g_filters(p_pay_order_id);
+      
+  end get_filter_code;
+    
   /**
+   * Функция get_assignments_cur возвращает открытый курсор 
+   *   Для начислений по заданному периоду и ордеру
+   *
+   * @param p_pay_order_id  - 
+   * @param p_type_cur      - тип курсора: GC_CURTYP_SIMPLE / GC_CURTYP_COMPOUND / GC_CURTYP_ALL (def)
+   * @param p_parallel      - степень параллелизма
+   * @param p_contract_type - тип обрабатываемых контрактов: GC_CT_ALL(def) / GC_CT_PERIOD / GC_CT_LIFE
    *
    */
   function get_assignments_cur(
     p_pay_order_id     pay_orders.fk_document%type,
-    p_parallel         number,
-    p_type_cur         varchar2,
-    p_payment_period   date,
-    p_contract_type    varchar2,
-    p_filter_company   varchar2,
-    p_filter_contract  varchar2
+    p_type_cur         varchar2 default null,
+    p_contract_type    varchar2 default null,
+    p_parallel         number   default 4
   ) return sys_refcursor is
   
     l_result        sys_refcursor;
@@ -406,14 +448,19 @@ create or replace package body pay_gfnpo_pkg is
     l_depth_recalc  number; --глубина поиска оплачиваемых периодов (от конца текущего года)
     l_months_query  varchar2(2000);
     l_pa_where      varchar2(2000);
-    
+    l_type_cur      varchar2(10);
+    l_filter_code   varchar2(10);
+    l_contract_type varchar2(10);
   begin  
-  
-    l_depth_recalc := least(get_max_depth(extract(year from p_payment_period)), GC_DEPTH_RECALC);
-
+    
+    l_type_cur      := nvl(p_type_cur, GC_CURTYP_ALL);
+    l_contract_type := nvl(p_contract_type, GC_CT_ALL);
+    l_filter_code   := get_filter_code(p_pay_order_id);
+    l_depth_recalc  := least(get_max_depth(p_pay_order_id), GC_DEPTH_RECALC);
+    
     l_months_query := 'select /*+ materialize*/ ';
     
-    if p_type_cur = GC_CURTYP_SIMPLE then
+    if l_type_cur = GC_CURTYP_SIMPLE then
       l_pa_where := chr(10) ||
       'and  pa.effective_calc_date = po.payment_period
        and  pa.period_code = 1';
@@ -428,9 +475,9 @@ create or replace package body pay_gfnpo_pkg is
          lateral(
               select add_months(po.end_year_month, -1 * (level - 1)) month_date
               from   dual
-              connect by level < :depth_recalc + 1
+              connect by level <= :depth_recalc
          ) m';
-      if p_type_cur = GC_CURTYP_COMPOUND then
+      if l_type_cur = GC_CURTYP_COMPOUND then
         l_pa_where := chr(10) ||
       ' and  (pa.effective_calc_date <> po.payment_period
               or pa.period_code <> 1)';
@@ -441,29 +488,27 @@ create or replace package body pay_gfnpo_pkg is
     
     l_pa_where := l_pa_where ||
       case --если заданы фильтра
-        when p_filter_contract = 'Y' then
+        when l_filter_code = GC_POFLTR_CONTRACT then
           chr(10) ||
           'and pa.fk_pension_agreement in (
              select pof.filter_value
              from   pay_order_filters pof
-             where  pof.filter_code = :3
+             where  pof.filter_code = ''' || l_filter_code || '''
              and    pof.fk_pay_order = po.fk_document)'
-        when p_filter_company  = 'Y' then
+        when l_filter_code  = GC_POFLTR_COMPANY then
           chr(10) ||
           'and pa.fk_company in (
              select pof.filter_value
              from   pay_order_filters pof
-             where  pof.filter_code = :3
+             where  pof.filter_code = ''' || l_filter_code || '''
              and    pof.fk_pay_order = po.fk_document)'
-      end || 
+      end ||
       case --если отдельно считаем пожизненные и срочные
-        when p_contract_type = GC_CT_LIFE then
+        when l_contract_type = GC_CT_LIFE then
           chr(10) || 'and pa.expiration_date is null'
-        when p_contract_type = GC_CT_TERM then
+        when l_contract_type = GC_CT_PERIOD then
           chr(10) || 'and pa.expiration_date is not null'
       end;
-    
-    put('get_assignments_cur(' || p_type_cur || '): l_depth_recalc = ' || l_depth_recalc);
           
     l_request := 'with w_pay_order as ( --обрабатываемый pay_order
   select /*+ materialize*/
@@ -517,7 +562,7 @@ w_pension_agreements as (
      ) last_pay_date,
      pa.creation_date,
      po.payment_period,
-     case when ab.fk_account is not null then ''Y'' else ''N'' end is_ips,
+     case when ab.fk_account is null and sspv.fk_sspv_id is not null then ''N'' else ''Y'' end is_ips,
      ab.amount account_balance,
      case 
        when pa.fk_scheme in (1, 5, 6) then
@@ -553,7 +598,9 @@ w_pension_agreements as (
        pa.effective_date,
        pa.expiration_date,
        pa.account_balance,
-       sum(pa.amount)over(partition by pa.fk_debit order by pa.paydate) total_amount,
+       case pa.is_ips
+         when ''Y'' then sum(pa.amount)over(partition by pa.fk_debit order by pa.paydate) 
+       end total_amount,
        pa.pension_amount,
        pa.is_ips,
        pa.scheme_type
@@ -565,28 +612,19 @@ from   (
                  pa.fk_scheme,
                  pa.fk_contragent,
                  pa.month_date paydate,
-                 pa.amount + 
-                   case  --коррекция суммы начисления (срабатывает только один раз за расчет для каждого пенс.соглашения!)
-                     when (
-                             (
-                              pa.is_ips = ''Y'' and pa.remaining < 0                 --если ипс и превышен лимит...
-                             )
-                            or
-                             (
-                               pa.scheme_type = ''' || GC_SCH_PERIOD || '''          --срочная пенсия и
-                               and pa.month_date = trunc(pa.expiration_date, ''MM'') --оплата последнего периода
-                             )
-                            or
-                             (
-                               pa.scheme_type = ''' ||  GC_SCH_REST || '''          --пенсия до исчерпания средств и
-                               and pa.month_date = trunc(pa.last_pay_date, ''MM'')  --оплата последнего в расчете периода и
-                               and pa.remaining < pa.pension_amount                 --остаток меньше чем месячная пенсия
-                             )
-                           ) then
-                        pa.remaining                                                --добавляем остаток
-                     else 0
-                   end         amount,
-                 pa.paydays,
+                 case
+                   when pa.special_calc = ''Y'' then
+                     pay_gfnpo_pkg.get_pension(pa.fk_pension_agreement, pa.month_date)
+                   when pa.month_date = pa.addendum_from_date then 
+                     pa.first_amount 
+                   else pa.amount 
+                 end amount,
+                 case
+                   when pa.special_calc = ''Y'' then
+                     pay_gfnpo_pkg.get_pay_days(pa.fk_pension_agreement, pa.month_date)
+                   else
+                     trunc(least(pa.last_pay_date, pa.end_month_date)) - trunc(greatest(pa.month_date, pa.effective_date)) + 1
+                 end paydays,
                  pa.addendum_from_date,
                  pa.last_pay_date,
                  pa.effective_date,
@@ -604,31 +642,8 @@ from   (
                          pa.fk_contragent,
                          m.month_date,
                          m.end_month_date,
-                         case  
-                           when pr.is_restriction = 1 or trunc(pa.expiration_date, ''MM'') = m.month_date then 
-                             pay_gfnpo_pkg.get_pension(pa.fk_pension_agreement, m.month_date)
-                           when m.month_date = paa.from_date then 
-                             paa.first_amount 
-                           else paa.amount 
-                         end amount,
-                         case pa.is_ips
-                           when ''Y'' then
-                             pa.account_balance - 
-                               sum(case  
-                                     when pr.is_restriction = 1 or trunc(pa.expiration_date, ''MM'') = m.month_date then 
-                                       pay_gfnpo_pkg.get_pension(pa.fk_pension_agreement, m.month_date)
-                                     when m.month_date = paa.from_date then 
-                                       paa.first_amount 
-                                     else paa.amount 
-                                   end
-                               ) over(partition by pa.fk_debit order by m.month_date) 
-                         end remaining,
-                         case
-                           when pr.is_restriction = 1 then
-                             pay_gfnpo_pkg.get_pay_days(pa.fk_pension_agreement, m.month_date)
-                           else
-                             trunc(least(pa.last_pay_date, m.end_month_date)) - trunc(greatest(m.month_date, pa.effective_date)) + 1
-                         end paydays,
+                         paa.first_amount ,
+                         paa.amount ,
                          paa.from_date addendum_from_date,
                          pa.last_pay_date,
                          pa.effective_date,
@@ -638,18 +653,22 @@ from   (
                          pa.is_ips,
                          pa.payment_period,
                          pa.period_code,
-                         pa.scheme_type
+                         pa.scheme_type,
+                         case 
+                           when pa.expiration_date between m.month_date and m.end_month_date - 1
+                             or exists(
+                                  select coalesce(max(1), 0) is_restriction
+                                  from   pay_restrictions pr
+                                  where  m.month_date <= coalesce(pr.expiration_date, m.month_date)
+                                  and    m.end_month_date >= pr.effective_date
+                                  and    pr.fk_document_cancel is null
+                                  and    pr.fk_doc_with_acct = pa.fk_pension_agreement
+                                ) then ''Y''
+                           else        ''N''
+                         end special_calc
                   from   w_pension_agreements          pa,
                          w_months                      m,
-                         pension_agreement_addendums_v paa,
-                         lateral(
-                           select coalesce(max(1), 0) is_restriction
-                           from   pay_restrictions pr
-                           where  m.month_date <= coalesce(pr.expiration_date, m.month_date)
-                           and    m.end_month_date >= pr.effective_date
-                           and    pr.fk_document_cancel is null
-                           and    pr.fk_doc_with_acct = pa.fk_pension_agreement
-                         ) pr
+                         pension_agreement_addendums_v paa
                   where  m.month_date between paa.from_date and paa.end_date
                   and    paa.fk_pension_agreement = pa.fk_pension_agreement
                   and    not exists (
@@ -670,35 +689,29 @@ from   (
                             and    pr.fk_doc_with_acct = pa.fk_pension_agreement
                          )
                   and    m.month_date between pa.effective_calc_date and pa.last_pay_date'
-                  || chr(10) || '    ) pa where pa.remaining + pa.amount >= 0'
+                  || chr(10) || '    ) pa'
                   || chr(10) || ') pa'
-                  || chr(10) || 'where pa.amount <> 0  and not (pa.amount < 0 and pa.scheme_type = ''' || GC_SCH_REST || ''')'
+                  || chr(10) || 'where pa.amount <> 0'
     ;
     --
     put(rpad('-', 40, '-'));
     put('p_pay_order_id: ' || p_pay_order_id);
     put('l_depth_recalc: ' || l_depth_recalc);
+    put('l_filter_code: ' || l_filter_code);
     put(rpad('-', 40, '-'));
     put(l_request);
     put(rpad('-', 40, '-'));
     --
-    if p_filter_contract = 'Y' or p_filter_company = 'Y' then
-      open l_result for l_request 
-        using p_pay_order_id,
-              l_depth_recalc,
-              case when p_filter_contract = 'Y' then GC_POFLTR_CONTRACT when p_filter_company = 'Y' then GC_POFLTR_COMPANY end
-       ;
-    else
-      open l_result for l_request 
-        using p_pay_order_id,
-              l_depth_recalc
-      ;
-    end if;
+    open l_result for l_request 
+      using p_pay_order_id,
+            l_depth_recalc
+    ;
     
     return l_result;
+    
   exception
     when others then
-      fix_exception($$PLSQL_LINE, 'get_assignments_cur(' || p_pay_order_id || ', ' || p_contract_type || ', ' || p_filter_company || ', ' || p_filter_contract || ') failed');
+      fix_exception($$PLSQL_LINE, 'get_assignments_cur(' || p_pay_order_id || ', ' || p_contract_type || ') failed');
       raise;
   end get_assignments_cur;
   
@@ -739,50 +752,32 @@ from   (
         ;
       exit when p_cursor%notfound;
       
-      begin
-        --
-        if l_rec.fk_debit is null then
-            fix_exception($$PLSQL_LINE, 'get_assignments_calc', 'Не определен счет-источник для начисления пенсии');
-            raise e_continue;
+      --контроль остатков ипс
+      if l_rec.is_ips = 'Y' then
+        if (
+             l_rec.total_amount > l_rec.account_balance
+           )
+          or
+           (
+             l_rec.scheme_type = GC_SCH_PERIOD                and
+             trunc(l_rec.expiration_date, 'MM') = l_rec.paydate
+           )
+          or
+           (
+             l_rec.scheme_type = GC_SCH_REST                  and
+             trunc(l_rec.last_pay_date, 'MM') = l_rec.paydate and
+             (l_rec.account_balance - l_rec.total_amount) < l_rec.pension_amount
+           )
+        then
+          l_rec.total_amount := l_rec.total_amount - l_rec.amount;
+          l_rec.amount := l_rec.account_balance - l_rec.total_amount;
+          l_rec.total_amount := l_rec.total_amount + l_rec.amount;
+          continue when l_rec.amount < 0;
         end if;
-        --проверить нужен ли следующий блок, теперь эти ситуации должны регулироваться запросом
-        if l_rec.is_ips = 'Y' and l_rec.total_amount > l_rec.account_balance then
-          if l_rec.total_amount - l_rec.amount >= l_rec.account_balance then
-            if l_rec.scheme_type = GC_SCH_REST then
-              raise e_pass;
-            else
-              fix_exception($$PLSQL_LINE, 'get_assignments_calc', 'Превышен остаток средств на ИПС');
-              raise e_continue;
-            end if;
-          else
-            l_rec.amount := l_rec.amount - (l_rec.total_amount - l_rec.account_balance);
-          end if;
-        end if;
-        /*--если начисление за неполный последний месяц выплат
-        if l_rec.scheme_type = GC_SCH_LIFE and trunc(l_rec.paydate, 'MM') = trunc(l_rec.expiration_date, 'MM') and
-           last_day(l_rec.paydate) <> l_rec.expiration_date          then
-          --если в этом месяце были изменения пенсии
-          if l_rec.addendum_from_date = trunc(l_rec.last_pay_date, 'MM') then
-            /*
-            TODO: owner="V.Zhuravov" created="06.09.2018"
-            text="добавить перерасчет суммы начисления, для случая изменения суммы пенсии в последнем месяце выплат, с неполной оплатой"
-            /
-            fix_exception($$PLSQL_LINE, 'get_assignments_calc', 'Договор имеет изменения суммы выплат в месяце завершения выплат.');
-            raise e_continue;
-          elsif l_rec.is_ips = 'N' then
-            l_rec.amount := round(l_rec.amount / to_number(extract(day from last_day(l_rec.paydate))) * l_rec.paydays, 2);
-          end if;
-        end if;*/
-        --sys_context('USERENV', 'SID') --записать в comment!
-        pipe row(l_rec);
+      end if;
       
-      exception
-        when e_continue then
-          log_write(log_pkg.C_LVL_WRN, 'Ошибка! ' || get_error_msg() || '. Пенс.дог. ' || l_rec.fk_contract);
-          init_exception;
-        when e_pass then
-          null;
-      end;
+      pipe row(l_rec);
+      
     end loop;
     
   end get_assignments_calc;
@@ -793,10 +788,12 @@ from   (
   procedure calc_assignments(
     p_pay_order          g_pay_order_typ,
     p_parallel           number,
-    p_error_tag          varchar2,
+    p_error_tag          varchar2/*,
     p_filter_company     varchar2,
-    p_filter_contract    varchar2
+    p_filter_contract    varchar2*/
   ) is
+    
+    l_contract_type varchar2(10);
     
     procedure insert_assignments_(
       p_agreements_cur   sys_refcursor
@@ -852,21 +849,20 @@ from   (
     end insert_assignments_;
   
   begin
+    l_contract_type := case to_number(substr(p_pay_order.payment_freqmask, 7, 2)) 
+      when 11 then GC_CT_ALL 
+      when 10 then GC_CT_PERIOD 
+      when 1 then  GC_CT_LIFE
+    end;
     
-    if p_filter_contract = 'N' and get_pct_period(p_pay_order.payment_period) > 80 then
+    if get_filter_code(p_pay_order.pay_order_id) is null and get_pct_period(p_pay_order.payment_period) > 80 then
       --если в текущем периоде более 80% соглашений - считаем его отдельно
       insert_assignments_(
         p_agreements_cur  => get_assignments_cur(
               p_pay_order_id    => p_pay_order.pay_order_id,
               p_parallel        => p_parallel,
               p_type_cur        => GC_CURTYP_SIMPLE,
-              p_payment_period  => p_pay_order.payment_period,
-              p_contract_type   => case to_number(substr(p_pay_order.payment_freqmask, 7, 2)) 
-                                     when 11 then null 
-                                     when 10 then GC_CT_TERM 
-                                     when 1 then  GC_CT_LIFE end,
-              p_filter_company  => p_filter_company ,
-              p_filter_contract => p_filter_contract
+              p_contract_type   => l_contract_type
             )
       );
       commit;
@@ -875,13 +871,7 @@ from   (
               p_pay_order_id    => p_pay_order.pay_order_id,
               p_parallel        => p_parallel,
               p_type_cur        => GC_CURTYP_COMPOUND,
-              p_payment_period  => p_pay_order.payment_period,
-              p_contract_type   => case to_number(substr(p_pay_order.payment_freqmask, 7, 2)) 
-                                     when 11 then null 
-                                     when 10 then GC_CT_TERM 
-                                     when 1 then  GC_CT_LIFE end,
-              p_filter_company  => p_filter_company ,
-              p_filter_contract => p_filter_contract
+              p_contract_type   => l_contract_type
             )
       );
     else
@@ -891,13 +881,7 @@ from   (
               p_pay_order_id    => p_pay_order.pay_order_id,
               p_parallel        => p_parallel,
               p_type_cur        => GC_CURTYP_ALL,
-              p_payment_period  => p_pay_order.payment_period,
-              p_contract_type   => case to_number(substr(p_pay_order.payment_freqmask, 7, 2)) 
-                                     when 11 then null 
-                                     when 10 then GC_CT_TERM 
-                                     when 1 then  GC_CT_LIFE end,
-              p_filter_company  => p_filter_company ,
-              p_filter_contract => p_filter_contract
+              p_contract_type   => l_contract_type
             )
       );
     end if;
@@ -972,26 +956,7 @@ from   (
   
     l_pay_order g_pay_order_typ;
     l_err_tag   varchar2(250);
-    --
-    function is_exists_filter_(
-      p_pay_oder_id number,
-      p_filter_code varchar2
-    ) return varchar2 is
-      l_result varchar2(1);
-    begin
-      select 'Y'
-      into   l_result
-      from   pay_order_filters pof
-      where  rownum = 1
-      and    pof.fk_pay_order = p_pay_oder_id
-      and    pof.filter_code = p_filter_code;
-      
-      return l_result;
-    exception
-      when no_data_found then
-        return 'N';
-    end;
-    
+
   begin
     --
     init_exception(
@@ -999,7 +964,7 @@ from   (
       p_log_token => p_pay_order_id
     );
     --очистка кеша спец.расчета пенсий
-    purge_pension_hash;
+    purge_hash_pkg;
     --
     l_err_tag   := GC_UNIT_NAME || '_' || to_char(sysdate, 'yyyymmddhh24miss');
     --
@@ -1023,9 +988,9 @@ from   (
         calc_assignments(
           p_pay_order       => l_pay_order,
           p_parallel        => p_parallel,
-          p_error_tag       => l_err_tag,
+          p_error_tag       => l_err_tag /*,
           p_filter_company  => is_exists_filter_(l_pay_order.pay_order_id, GC_POFLTR_COMPANY),
-          p_filter_contract => is_exists_filter_(l_pay_order.pay_order_id, GC_POFLTR_CONTRACT)
+          p_filter_contract => is_exists_filter_(l_pay_order.pay_order_id, GC_POFLTR_CONTRACT)*/
         );
       end if;
     else
@@ -1190,7 +1155,7 @@ from   (
                 from   lateral(
                             select add_months(l_end_year, -1 * (level - 1)) month_date
                             from   dual
-                            connect by level < GC_DEPTH_RECALC + 1
+                            connect by level <= GC_DEPTH_RECALC
                        ) m
               )
               select /*+ parallel(4)*/
