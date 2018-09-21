@@ -151,6 +151,10 @@ create or replace package body log_pkg as
 
   procedure show_errors_all is
   begin
+    if g_stack_err is null then
+      return;
+    end if;
+    
     g_output_force := true;
     for i in 1..g_stack_err.count loop
       put('Unit_name: ' || g_stack_err(i).unit_name || ' (' || g_stack_err(i).unit_line || ')');
