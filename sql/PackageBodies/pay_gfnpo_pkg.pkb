@@ -441,9 +441,9 @@ create or replace package body pay_gfnpo_pkg is
     p_type_cur         varchar2 default null,
     p_contract_type    varchar2 default null,
     p_parallel         number   default 4
-  ) return sys_refcursor is
+  ) return t_assignments_cur is
   
-    l_result        sys_refcursor;
+    l_result        t_assignments_cur;
     l_request       varchar2(32767);
     l_depth_recalc  number; --глубина поиска оплачиваемых периодов (от конца текущего года)
     l_months_query  varchar2(2000);
@@ -466,8 +466,8 @@ create or replace package body pay_gfnpo_pkg is
        and  pa.period_code = 1';
       l_months_query := l_months_query || 'trunc(po.payment_period, ''MM'') month_date,
          last_day(po.payment_period) end_month_date
-  from   w_pay_order po
-  where :depth_recalc > 0'; --просто чтобы не мудрить с параметрами
+  from   w_pay_order po ';
+--  where :depth_recalc > 0'; --просто чтобы не мудрить с параметрами
     else
       l_months_query := l_months_query || 'm.month_date,
          last_day(m.month_date) end_month_date
@@ -475,7 +475,7 @@ create or replace package body pay_gfnpo_pkg is
          lateral(
               select add_months(po.end_year_month, -1 * (level - 1)) month_date
               from   dual
-              connect by level <= :depth_recalc
+              connect by level <= ' || l_depth_recalc || ' --:depth_recalc
          ) m';
       if l_type_cur = GC_CURTYP_COMPOUND then
         l_pa_where := chr(10) ||
@@ -525,7 +525,7 @@ create or replace package body pay_gfnpo_pkg is
          po.end_year,
          po.end_year_month
   from   pay_order_periods_v po
-  where  po.fk_document = :fk_pay_order
+  where  po.fk_document = ' || p_pay_order_id || ' --:fk_pay_order
 ),
 w_months as ( --список обрабатываемых месяцев'
    || chr(10) || l_months_query || chr(10) || '
@@ -701,11 +701,14 @@ from   (
     put(l_request);
     put(rpad('-', 40, '-'));
     --
-    open l_result for l_request 
+    execute immediate 'declare l_result ' || GC_UNIT_NAME || '.t_assignments_cur; ' 
+      || ' begin open l_result for ' || l_request || '; :1 := l_result; end;'
+      using out l_result;
+    
+    /*open l_result for l_request 
       using p_pay_order_id,
             l_depth_recalc
-    ;
-    
+    ;*/
     return l_result;
     
   exception
@@ -718,20 +721,20 @@ from   (
    * Конвейерная функция для параллельного обхода курсора p_cursor 
    */
   function get_assignments_calc(
-    p_cursor       sys_refcursor,
+    p_cursor       t_assignments_cur,
     p_fk_pay_order number
-  ) return assignments_tbl_typ
+  ) return t_assignments_tbl_typ
     pipelined
-    parallel_enable(partition p_cursor by any) --hash(fk_pension_agreement))
+    parallel_enable(partition p_cursor by hash (fk_contract))
   is
-    l_rec        assignment_rec_typ;
+    p_rec        t_assignments_rec_typ;
     l_message    varchar2(1024);
     
     --
     --
     --
     procedure log_write_(
-      p_rec     in out nocopy assignment_rec_typ,
+      p_rec     in out nocopy t_assignments_rec_typ,
       p_msg_level varchar2,
       p_msg       varchar2 default null
     ) is
@@ -758,14 +761,14 @@ from   (
     --
     --
     function check_errors_(
-      p_rec     in out nocopy assignment_rec_typ
+      p_rec     in out nocopy t_assignments_rec_typ
     ) return boolean is
       l_result boolean;
       
     begin
       l_result := false;
       
-      if p_rec.is_ips = 'Y' and nvl(l_rec.account_balance, 0) <= 0 then
+      if p_rec.is_ips = 'Y' and nvl(p_rec.account_balance, 0) <= 0 then
         log_write_(p_rec, log_pkg.C_LVL_ERR, 'Нет денег на ИПС');
         l_result := true;
       end if;
@@ -787,32 +790,32 @@ from   (
     --
     --
     function check_rest_ips_(
-      p_rec     in out nocopy assignment_rec_typ
+      p_rec     in out nocopy t_assignments_rec_typ
     ) return boolean is
       l_result boolean;
     begin
       l_result := false;
       
       if (
-           l_rec.total_amount > l_rec.account_balance
+           p_rec.total_amount > p_rec.account_balance
          )
         or
          (
-           l_rec.scheme_type = GC_SCH_PERIOD                and
-           trunc(l_rec.expiration_date, 'MM') = l_rec.paydate
+           p_rec.scheme_type = GC_SCH_PERIOD                and
+           trunc(p_rec.expiration_date, 'MM') = p_rec.paydate
          )
         or
          (
-           l_rec.scheme_type = GC_SCH_REST                  and
-           trunc(l_rec.last_pay_date, 'MM') = l_rec.paydate and
-           (l_rec.account_balance - l_rec.total_amount) < l_rec.pension_amount
+           p_rec.scheme_type = GC_SCH_REST                  and
+           trunc(p_rec.last_pay_date, 'MM') = p_rec.paydate and
+           (p_rec.account_balance - p_rec.total_amount) < p_rec.pension_amount
          )
       then
-        l_rec.total_amount := l_rec.total_amount - l_rec.amount;
-        l_rec.amount := l_rec.account_balance - l_rec.total_amount;
-        l_rec.total_amount := l_rec.total_amount + l_rec.amount;
+        p_rec.total_amount := p_rec.total_amount - p_rec.amount;
+        p_rec.amount := p_rec.account_balance - p_rec.total_amount;
+        p_rec.total_amount := p_rec.total_amount + p_rec.amount;
         
-        if l_rec.amount <= 0 then
+        if p_rec.amount <= 0 then
           log_write_(p_rec, log_pkg.C_LVL_ERR, 'Не достаточно средств на ИПС');
           l_result := true;
         else
@@ -831,34 +834,17 @@ from   (
       GC_LM_ASSIGNMENTS,
       p_fk_pay_order
     );
-  
-    l_rec := assignment_rec_typ();
+    
     loop
+      
       fetch p_cursor 
-        into l_rec.fk_contract, 
-             l_rec.fk_debit, 
-             l_rec.fk_credit, 
-             l_rec.fk_company, 
-             l_rec.fk_scheme, 
-             l_rec.fk_contragent, 
-             l_rec.paydate, 
-             l_rec.amount, 
-             l_rec.paydays, 
-             l_rec.addendum_from_date,
-             l_rec.last_pay_date, 
-             l_rec.effective_date, 
-             l_rec.expiration_date, 
-             l_rec.account_balance, 
-             l_rec.total_amount, 
-             l_rec.pension_amount, 
-             l_rec.is_ips,
-             l_rec.scheme_type
-        ;
+        into p_rec;
+      
       exit when p_cursor%notfound;
       
-      continue when check_errors_(l_rec) or (l_rec.is_ips = 'Y' and check_rest_ips_(l_rec)); 
+      continue when check_errors_(p_rec) or (p_rec.is_ips = 'Y' and check_rest_ips_(p_rec)); 
 
-      pipe row(l_rec);
+      pipe row(p_rec);
       
     end loop;
     

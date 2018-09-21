@@ -1,10 +1,35 @@
-create or replace package pay_gfnpo_pkg is
+create or replace package pay_gfnpo_pkg authid definer is
 
   -- Author  : V.ZHURAVOV
   -- Created : 29.06.2018 11:08:41
   -- Purpose : 
 
-
+  /**
+   * Набор типов для конвейрной функции get_assignments_calc
+   */
+  type t_assignments_rec_typ is record(
+    fk_contract           number(10),
+    fk_debit              number(10),
+    fk_credit             number(10),
+    fk_company            number(10),
+    fk_scheme             number(5),
+    fk_contragent         number(10),
+    paydate               date,
+    amount                number,
+    paydays               number,
+    addendum_from_date    date,
+    last_pay_date         date,
+    effective_date        date,
+    expiration_date       date,
+    account_balance       number,
+    total_amount          number,
+    pension_amount        number,
+    is_ips                varchar2(1),
+    scheme_type           varchar2(10)
+  );
+  type t_assignments_tbl_typ is table of t_assignments_rec_typ;
+  type t_assignments_cur is ref cursor return t_assignments_rec_typ;
+  
   /**
    * WRAP функция для процедуры calc_assignments (единообразие - поддержка сущ.API (см. PAY_GFOPS_PKG)
    * заполнить таблицу начислений пенсий
@@ -61,17 +86,18 @@ create or replace package pay_gfnpo_pkg is
     p_type_cur         varchar2 default null,
     p_contract_type    varchar2 default null,
     p_parallel         number   default 4
-  ) return sys_refcursor;
+  ) return t_assignments_cur;
   
   /**
-   * Конвейерная функция для параллельного обхода курсора p_cursor 
+   * Конвейерная функция get_assignments_calc возвращает результат расчета начислений
+   *  по заданному курсору. Выполняет контроль ошибок и формирует протокол расчета.
    */
   function get_assignments_calc(
-    p_cursor       sys_refcursor,
+    p_cursor       t_assignments_cur,
     p_fk_pay_order number
-  ) return assignments_tbl_typ
+  ) return t_assignments_tbl_typ
     pipelined
-    parallel_enable(partition p_cursor by any);
+    parallel_enable(partition p_cursor by hash (fk_contract));
   
   /**
    * Функция fill_charges_by_payorder - начисление пенсий по заданному платежному ордеру
