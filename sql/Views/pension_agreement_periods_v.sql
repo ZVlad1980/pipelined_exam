@@ -1,6 +1,6 @@
 create or replace view pension_agreement_periods_v as
   select pap.fk_pension_agreement,
-         pap.calc_date effective_calc_date,
+         pap.calc_date,
          pap.check_date,
          pap.pa_effective_date,
          paa.fk_base_contract,

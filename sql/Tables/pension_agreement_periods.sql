@@ -1,8 +1,8 @@
 create table pension_agreement_periods(
   fk_pension_agreement     number(10)
     constraint pension_agreement_periods_pk primary key,
-  effective_date           date,
-  first_restriction_date   date,
+  calc_date                date,
+  check_date               date,
   creation_date            date default sysdate,
   pa_effective_date        date not null
 ) organization index
@@ -26,6 +26,6 @@ alter table pension_agreement_periods add check_date date not null
 --
 comment on table pension_agreement_periods is 'Периоды оплаты по пенс.соглашеням';
 comment on column pension_agreement_periods.calc_date is 'Дата первого не оплаченного периода';
-comment on column pension_agreement_periods.check_date is 'Дата начала поиска пропущенных периодов'
+comment on column pension_agreement_periods.check_date is 'Дата начала поиска пропущенных периодов';
 comment on column pension_agreement_periods.pa_effective_date is 'Дата начала выплат соглашения (для контроля изменения)';
 /
