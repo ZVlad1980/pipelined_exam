@@ -137,7 +137,7 @@ create or replace package body pay_gfnpo_pkg is
       
     end loop;
     
-    put(p_msg);
+    put('log_write (' || case p_msg_level when log_pkg.C_LVL_ERR then 'ERROR' when log_pkg.C_LVL_WRN then 'WARNING' else 'INFO' end || '): ' || p_msg);
     
   end log_write;
   
@@ -655,11 +655,11 @@ from   (
                          pa.period_code,
                          pa.scheme_type,
                          case 
-                           when pa.expiration_date between m.month_date and m.end_month_date - 1
+                           when (pa.expiration_date between m.month_date and m.end_month_date - 1)
                              or exists(
-                                  select coalesce(max(1), 0) is_restriction
+                                  select 1
                                   from   pay_restrictions pr
-                                  where  m.month_date <= coalesce(pr.expiration_date, m.month_date)
+                                  where  greatest(m.month_date, pa.effective_date) <= coalesce(pr.expiration_date, greatest(m.month_date, pa.effective_date))
                                   and    m.end_month_date >= pr.effective_date
                                   and    pr.fk_document_cancel is null
                                   and    pr.fk_doc_with_acct = pa.fk_pension_agreement
@@ -684,14 +684,13 @@ from   (
                             select 1
                             from   pay_restrictions pr
                             where  pr.fk_document_cancel is null
-                            and    m.month_date >= pr.effective_date 
+                            and    greatest(m.month_date, pa.effective_date) >= pr.effective_date 
                             and    m.end_month_date <= coalesce(pr.expiration_date, m.end_month_date)
                             and    pr.fk_doc_with_acct = pa.fk_pension_agreement
                          )
                   and    m.month_date between pa.calc_date and pa.last_pay_date'
-                  || chr(10) || '    ) pa'
-                  || chr(10) || ') pa'
-                  || chr(10) || 'where pa.amount <> 0'
+                  || chr(10) || '    ) pa  ' --where not(pa.is_ips = ''Y'' and pa.account_balance <= 0)
+                  || chr(10) || ') pa'     --pa.amount <> 0
     ;
     --
     put(rpad('-', 40, '-'));
@@ -719,15 +718,120 @@ from   (
    * Конвейерная функция для параллельного обхода курсора p_cursor 
    */
   function get_assignments_calc(
-    p_cursor sys_refcursor
+    p_cursor       sys_refcursor,
+    p_fk_pay_order number
   ) return assignments_tbl_typ
     pipelined
     parallel_enable(partition p_cursor by any) --hash(fk_pension_agreement))
   is
     l_rec        assignment_rec_typ;
-    e_continue   exception;
-    e_pass       exception;
+    l_message    varchar2(1024);
+    
+    --
+    --
+    --
+    procedure log_write_(
+      p_rec     in out nocopy assignment_rec_typ,
+      p_msg_level varchar2,
+      p_msg       varchar2 default null
+    ) is
+    begin
+      
+      log_write(
+        p_msg_level => p_msg_level,
+        p_msg       => p_msg 
+                         || case when l_message is not null then 
+                              case when  p_msg is not null then chr(10) end 
+                              || l_message 
+                            end
+                         || '(контрагент: ' || p_rec.fk_contragent 
+                         || ', дата начисления ' || to_char(p_rec.paydate, 'dd.mm.yyyy')
+                         || ', сумма ' || to_char(p_rec.amount)
+                         || case p_rec.is_ips when 'Y' then ', остаток ИПС: ' || to_char(p_rec.account_balance) end
+                         || ', пенс.соглашение: ' || p_rec.fk_contract
+                         || case p_rec.is_ips when 'Y' then ', ИПС: ' || p_rec.fk_debit end
+                         || ')'
+      );
+    end log_write_;
+    
+    --
+    --
+    --
+    function check_errors_(
+      p_rec     in out nocopy assignment_rec_typ
+    ) return boolean is
+      l_result boolean;
+      
+    begin
+      l_result := false;
+      
+      if p_rec.is_ips = 'Y' and nvl(l_rec.account_balance, 0) <= 0 then
+        log_write_(p_rec, log_pkg.C_LVL_ERR, 'Нет денег на ИПС');
+        l_result := true;
+      end if;
+      
+      if nvl(p_rec.amount, 0) <= 0 then
+        log_write_(p_rec, log_pkg.C_LVL_ERR, 'Не корректная сумма выплаты');
+        l_result := true;
+      end if;
+      
+      if p_rec.scheme_type = GC_SCH_REST and p_rec.expiration_date is not null then
+        log_write_(p_rec, log_pkg.C_LVL_WRN, 'По схеме ' || p_rec.fk_scheme || ' задана дата завершения выплат: ' || to_char(p_rec.expiration_date, 'dd.mm.yyyy') );
+      end if;
+      
+      return l_result;
+      
+    end check_errors_;
+    
+    --
+    --
+    --
+    function check_rest_ips_(
+      p_rec     in out nocopy assignment_rec_typ
+    ) return boolean is
+      l_result boolean;
+    begin
+      l_result := false;
+      
+      if (
+           l_rec.total_amount > l_rec.account_balance
+         )
+        or
+         (
+           l_rec.scheme_type = GC_SCH_PERIOD                and
+           trunc(l_rec.expiration_date, 'MM') = l_rec.paydate
+         )
+        or
+         (
+           l_rec.scheme_type = GC_SCH_REST                  and
+           trunc(l_rec.last_pay_date, 'MM') = l_rec.paydate and
+           (l_rec.account_balance - l_rec.total_amount) < l_rec.pension_amount
+         )
+      then
+        l_rec.total_amount := l_rec.total_amount - l_rec.amount;
+        l_rec.amount := l_rec.account_balance - l_rec.total_amount;
+        l_rec.total_amount := l_rec.total_amount + l_rec.amount;
+        
+        if l_rec.amount <= 0 then
+          log_write_(p_rec, log_pkg.C_LVL_ERR, 'Не достаточно средств на ИПС');
+          l_result := true;
+        else
+          put('Выплачены остатки средств по ИПС' || ', пенс.соглашение: ' || p_rec.fk_contract);
+        end if;
+        
+      end if;
+      
+      return l_result;
+      
+    end check_rest_ips_;
+    
   begin
+    
+    init_exception(
+      GC_LM_ASSIGNMENTS,
+      p_fk_pay_order
+    );
+  
     l_rec := assignment_rec_typ();
     loop
       fetch p_cursor 
@@ -752,30 +856,8 @@ from   (
         ;
       exit when p_cursor%notfound;
       
-      --контроль остатков ипс
-      if l_rec.is_ips = 'Y' then
-        if (
-             l_rec.total_amount > l_rec.account_balance
-           )
-          or
-           (
-             l_rec.scheme_type = GC_SCH_PERIOD                and
-             trunc(l_rec.expiration_date, 'MM') = l_rec.paydate
-           )
-          or
-           (
-             l_rec.scheme_type = GC_SCH_REST                  and
-             trunc(l_rec.last_pay_date, 'MM') = l_rec.paydate and
-             (l_rec.account_balance - l_rec.total_amount) < l_rec.pension_amount
-           )
-        then
-          l_rec.total_amount := l_rec.total_amount - l_rec.amount;
-          l_rec.amount := l_rec.account_balance - l_rec.total_amount;
-          l_rec.total_amount := l_rec.total_amount + l_rec.amount;
-          continue when l_rec.amount < 0;
-        end if;
-      end if;
-      
+      continue when check_errors_(l_rec) or (l_rec.is_ips = 'Y' and check_rest_ips_(l_rec)); 
+
       pipe row(l_rec);
       
     end loop;
@@ -831,7 +913,7 @@ from   (
                t.paydays,
                t.fk_scheme,
                t.fk_contract
-        from   table(pay_gfnpo_pkg.get_assignments_calc(p_agreements_cur)) t
+        from   table(pay_gfnpo_pkg.get_assignments_calc(p_agreements_cur, p_pay_order.pay_order_id)) t
       log errors into err$_assignments (p_error_tag) reject limit unlimited;
       
       close p_agreements_cur;
@@ -988,9 +1070,7 @@ from   (
         calc_assignments(
           p_pay_order       => l_pay_order,
           p_parallel        => p_parallel,
-          p_error_tag       => l_err_tag /*,
-          p_filter_company  => is_exists_filter_(l_pay_order.pay_order_id, GC_POFLTR_COMPANY),
-          p_filter_contract => is_exists_filter_(l_pay_order.pay_order_id, GC_POFLTR_CONTRACT)*/
+          p_error_tag       => l_err_tag
         );
       end if;
     else
@@ -1032,7 +1112,8 @@ from   (
       on    (pap.fk_pension_agreement = u.fk_pension_agreement)
       when matched then
         update set
-        pap.calc_date = least(u.new_effective_date, pap.calc_date)
+        pap.calc_date  = least(u.new_effective_date, pap.calc_date),
+        pap.check_date = least(u.new_effective_date, pap.check_date)
       ;
     exception
       when others then
@@ -1064,6 +1145,10 @@ from   (
     end if;
     --
     purge_assignments_;
+    log_pkg.ClearByToken(
+      pLogMark  => GC_LM_ASSIGNMENTS,
+      pLogToken => p_pay_order_id
+    );
     --
     if p_commit then
       commit;
@@ -1190,7 +1275,7 @@ from   (
                           and    not exists ( --месяц не попадает целиком в период действий активного ограничения
                                    select 1
                                    from   pay_restrictions pr
-                                   where  m.month_date >= pr.effective_date 
+                                   where  greatest(m.month_date, pap.pa_effective_date) >= pr.effective_date 
                                    and    m.end_month_date <= nvl(pr.expiration_date, m.end_month_date)
                                    and    pr.fk_document_cancel is null
                                    and    pr.fk_doc_with_acct = pap.fk_pension_agreement
@@ -1256,11 +1341,7 @@ from   (
     l_error_tag varchar2(100);
   begin
     l_error_tag := 'update_balances_' || to_char(p_update_date, 'yyyymmdd');
-    merge into accounts_balance b
-    using (
-            select /*+ parallel(4)*/
-                   pa.fk_debit,
-                   /*
+                   /* проверка даты перехода с ипс на сспв (на будущее, пока по FND)!
                    case --выражение на будущее, когда баланс будет по GF
                      when pa.fk_scheme = 5 then
                        (
@@ -1270,27 +1351,34 @@ from   (
                          where  pp.id = pd.fk_pay_portfolio
                          and    pd.fk_pension_agreement = pa.fk_contract
                        )
-                   end transfer_date,*/
-                   ib.transfer_date,
-                   ib.amount
-            from   (
-                    select /*+ no_merge*/
-                           ib.ssylka,--ref_kodinsz             fk_pension_agreement,
-                           ib.data_nach_vypl,
-                           ib.data_perevoda_5_cx      transfer_date,
-                           sum(ib.amount)             amount
-                    from   fnd.sp_ips_balances ib
-                    where  ib.date_op < p_update_date
-                    group by ib.ssylka, ib.data_nach_vypl, ib.data_perevoda_5_cx
-                   ) ib,
-                   transform_contragents         tc,
-                   pension_agreements_active_v   pa,
+                   end transfer_date,
+                   */
+    merge into accounts_balance b
+    using ( with w_balances as (
+              select /*+ materialize*/
+                     tc.fk_contract             fk_base_contract,
+                     ib.data_nach_vypl          effective_date,
+                     ib.data_perevoda_5_cx      transfer_date,
+                     sum(ib.amount)             amount
+              from   fnd.sp_ips_balances    ib,
+                     transform_contragents  tc
+              where  ib.date_op < p_update_date
+              and    tc.ssylka_fl = ib.ssylka
+              group by tc.fk_contract, ib.data_nach_vypl, ib.data_perevoda_5_cx
+            )
+            select /*+ parallel(4)*/
+                   pa.fk_debit,
+                   b.transfer_date,
+                   b.amount
+            from   pension_agreements_active_v   pa,
+                   w_balances                    b,
                    accounts_balance              ab
             where  1 = 1
+            --
             and    ab.fk_account(+) = pa.fk_debit
-            and    pa.effective_date = ib.data_nach_vypl
-            and    pa.fk_base_contract = tc.fk_contract
-            and    tc.ssylka_fl = ib.ssylka
+            --
+            and    b.effective_date(+) = pa.effective_date
+            and    b.fk_base_contract(+) = pa.fk_base_contract
           ) u
     on    (b.fk_account = u.fk_debit)
     when not matched then

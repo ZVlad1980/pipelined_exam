@@ -9,7 +9,9 @@ create or replace view sp_ips_balances as
          dvs.sub_shifr_schet,
          spd.nom_vkl,
          spd.nom_ips,
-         ips.tip_lits
+         ips.tip_lits,
+         ips.nom_vkl ips_nom_vkl,
+         ips.nom_ips ips_nom_ips
   from   sp_pen_dog spd,
          sp_ips     ips,
          dv_sr_ips  dvs,

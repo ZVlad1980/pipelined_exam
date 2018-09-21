@@ -24,7 +24,8 @@ CREATE OR REPLACE PACKAGE LOG_PKG AS
   procedure ClearByMark ( pLogMark in number );
   
   -- очистка журнала ошибок по заданной бирке группы строк 
-  procedure ClearByToken ( pLogToken in number );  
+  --  21.09.2018 Журавов Добавил pLogMark, т.к. pLogToken не уникален в рамках таблицы
+  procedure ClearByToken ( pLogToken in number, pLogMark in number default null );  
   
   -- занесение сообщения в журнал  
   procedure WriteAtMark( pLogMark in number, pLogToken in number, pWrnLevel in number, pMsgInfo in varchar2 );

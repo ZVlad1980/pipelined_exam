@@ -1,8 +1,12 @@
 create or replace package body log_pkg as
   
   GC_OUTPUT_BUFF_SIZE    constant number := 100000;
+  GC_OUTPUT_ERR_SIZE     constant number := 2000;
   
   g_output               boolean := false;
+  g_output_lines         number;
+  g_output_max_lines     number;
+  g_output_force         boolean;
   
   type g_message_typ is record (
     unit_name         varchar2(150),
@@ -28,18 +32,20 @@ create or replace package body log_pkg as
       raise;
   end clearbymark;
 
-  -- оудаление группы строк журнала, заданной биркой (автономная транзакция)
-  procedure clearbytoken(plogtoken in number) as
+  -- очистка журнала ошибок по заданной бирке группы строк 
+  --  21.09.2018 Журавов Добавил pLogMark, т.к. pLogToken не уникален в рамках таблицы
+  procedure ClearByToken ( pLogToken in number, pLogMark in number default null ) is
     pragma autonomous_transaction;
   begin
-    delete from logs
-    where  fk_log_token = plogtoken;
+    delete from logs t
+    where  t.fk_log_token = plogtoken
+    and    t.fk_log_mark = coalesce(pLogMark, t.fk_log_mark);
     commit;
   exception
     when others then
       rollback;
       raise;
-  end clearbytoken;
+  end ClearByToken;
 
   -- занесение сообщения  (автономная транзакция)
   procedure writeatmark
@@ -77,7 +83,11 @@ create or replace package body log_pkg as
     p_buffer_size number default null
   ) is 
   begin 
-    g_output         := true;
+    g_output           := true;
+    g_output_lines     := 0;
+    g_output_max_lines := nvl(p_buffer_size, GC_OUTPUT_BUFF_SIZE) - GC_OUTPUT_ERR_SIZE;
+    g_output_force     := false;
+    
     dbms_output.enable(buffer_size => nvl(p_buffer_size, GC_OUTPUT_BUFF_SIZE)); 
   end enable_output;
   procedure disable_output is begin g_output := false; dbms_output.disable; end;
@@ -87,27 +97,14 @@ create or replace package body log_pkg as
     p_eof     boolean default true
   ) is
   begin
-    if g_output then
+    if g_output and g_output_lines < g_output_max_lines then
       begin
         if p_eof then
           dbms_output.put_line(p_message);
         else
           dbms_output.put(p_message);
         end if;
-      exception
-        when others then
-          null; --гасим ошибки вывода - не повод стопить программу!
-      end;
-    end if;
-  end put;
-  
-  procedure put(
-    p_message clob
-  ) is
-  begin
-    if g_output then
-      begin
-        dbms_output.put_line(p_message);
+        g_output_lines := g_output_lines + 1;
       exception
         when others then
           null; --гасим ошибки вывода - не повод стопить программу!
@@ -154,6 +151,7 @@ create or replace package body log_pkg as
 
   procedure show_errors_all is
   begin
+    g_output_force := true;
     for i in 1..g_stack_err.count loop
       put('Unit_name: ' || g_stack_err(i).unit_name || ' (' || g_stack_err(i).unit_line || ')');
       put('Message: ' || g_stack_err(i).message);
@@ -161,6 +159,7 @@ create or replace package body log_pkg as
       put('Error details:');
       put(g_stack_err(i).error_details);
     end loop;
+    g_output_force := false;
   end show_errors_all;
 
   function get_error_msg return varchar2 is

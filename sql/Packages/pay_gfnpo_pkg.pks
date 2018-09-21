@@ -64,10 +64,11 @@ create or replace package pay_gfnpo_pkg is
   ) return sys_refcursor;
   
   /**
-   * внутреннее использование
+   * Конвейерная функция для параллельного обхода курсора p_cursor 
    */
   function get_assignments_calc(
-    p_cursor in sys_refcursor
+    p_cursor       sys_refcursor,
+    p_fk_pay_order number
   ) return assignments_tbl_typ
     pipelined
     parallel_enable(partition p_cursor by any);

@@ -794,14 +794,16 @@ create or replace package body import_assignments_pkg is
   /**
    * Процедура обновляет статус и периодо действия пенс.соглашений
    */
-  procedure update_pa_expiration_date is
+  procedure update_pa_periods is
     cursor l_pa_cur is
       select pa.fk_contract, 
-             pd.pd_data_okon_vypl expiration_date
+             pd.data_nach_vypl     effective_date,
+             pd.pd_data_okon_vypl  expiration_date
       from   pension_agreements_v  pa,
              transform_contragents tc,
              fnd.sp_pen_dog_v      pd
       where  1=1
+      and    pa.effective_date <> pd.data_nach_vypl
       and    coalesce(pa.expiration_date, sysdate) <> coalesce(pd.pd_data_okon_vypl, sysdate)
       and    pd.data_nach_vypl = pa.effective_date
       and    pd.ssylka = tc.ssylka_fl
@@ -818,15 +820,16 @@ create or replace package body import_assignments_pkg is
     
     forall i in 1..l_pa_tbl.count
       update pension_agreements pa
-      set    pa.expiration_date = l_pa_tbl(i).expiration_date
+      set    pa.effective_date  = l_pa_tbl(i).effective_date,
+             pa.expiration_date = l_pa_tbl(i).expiration_date
       where  pa.fk_contract = l_pa_tbl(i).fk_contract;
 
   
   exception
     when others then
-      fix_exception($$PLSQL_LINE, 'update_pa_expiration_date');
+      fix_exception($$PLSQL_LINE, 'update_pa_periods');
       raise;
-  end update_pa_expiration_date;
+  end update_pa_periods;
   
   /**
    * Процедура обновляет дату перехода с ИПС на ССПВ для 5 схемы
@@ -881,7 +884,7 @@ create or replace package body import_assignments_pkg is
     
     update_pa_period_code;
     update_pa_state;
-    update_pa_expiration_date;
+    update_pa_periods;
     update_transfer_date;
     if p_commit then
       commit;
