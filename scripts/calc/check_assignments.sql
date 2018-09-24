@@ -1,38 +1,18 @@
-/*--
-create table assignments_201809_gf as --assignments_201809_gf as --23540831
-select *
---delete
-from   assignments asg
-where  asg.fk_doc_with_action = 23908544
---truncate table pension_agreement_periods
-select 'assignments' tbl, count(1) cnt, count(distinct asg.fk_doc_with_acct) cnt2
-from   assignments asg
-where  asg.fk_doc_with_action = 23908544
-union all
-select 'assignments_201809_fnd' tbl, count(1) cnt, count(distinct asg.fk_doc_with_acct) cnt2
-from   assignments_201809_fnd asg
-where  asg.fk_asgmt_type = 2
-and    asg.fk_doc_with_action = 23540831
-*/
-/*
-select *
-from   assignments_201809_fnd  fasg
-where  fasg.fk_doc_with_acct = 23540831
-*/
---select * from assignments_201809_gf a where a.fk_doc_with_acct = 23292187
 with w_asg as (
 select distinct asg.fk_doc_with_acct
 from   (
         select asg.fk_doc_with_acct, asg.paydate, round(asg.amount, 2) amount
-        from   assignments_201809_fnd asg
-        where  asg.fk_asgmt_type = 2
+        from   assignments_gf asg
         minus
         select asg.fk_doc_with_acct, asg.paydate, round(asg.amount, 2) amount
-        from   assignments_201809_gf asg
-        where  asg.fk_doc_with_action = 23908544
+        from   assignments_fnd asg
+        where  1=1
+        --and    asg.fk_asgmt_type = 2 
+        and    asg.fk_doc_with_acct = 2796396
+        --minus
        ) asg
        where asg.fk_doc_with_acct not in (
-               23273375,
+               2796396,
                23518353,
                23539988,
                23640265,
@@ -58,8 +38,8 @@ select asg2.fk_doc_with_acct,
        pap.fk_base_contract,
        pap.fk_contragent
 from   w_asg w,
-       assignments_201809_fnd       asg2,
-       assignments_201809_gf        asg,
+       assignments_fnd       asg2,
+       assignments_gf        asg,
        pension_agreement_periods_v  pap,
        accounts_balance             b
 where  1=1
@@ -72,6 +52,33 @@ and    asg.fk_doc_with_acct(+) = asg2.fk_doc_with_acct
 and    asg2.fk_doc_with_acct = w.fk_doc_with_acct
 order by asg2.fk_doc_with_acct,
        asg2.paydate
+/
+/*
+drop table assignments_gf
+create table assignments_gf as
+select count(1)
+--delete
+from   assignments asg
+where  asg.fk_doc_with_action = 23864557
+/
+/*
+--truncate table pension_agreement_periods
+select 'assignments' tbl, count(1) cnt, count(distinct asg.fk_doc_with_acct) cnt2
+from   assignments asg
+where  asg.fk_doc_with_action = 23908544
+union all
+select 'assignments_201809_fnd' tbl, count(1) cnt, count(distinct asg.fk_doc_with_acct) cnt2
+from   assignments_201809_fnd asg
+where  asg.fk_asgmt_type = 2
+and    asg.fk_doc_with_action = 23540831
+*/
+/*
+select *
+from   assignments_201809_fnd  fasg
+where  fasg.fk_doc_with_acct = 23540831
+*/
+--select * from assignments_201809_gf a where a.fk_doc_with_acct = 23292187
+
 /*w
 select 'assignments' tbl, count(distinct asg.fk_doc_with_acct) cnt
 from   assignments asg

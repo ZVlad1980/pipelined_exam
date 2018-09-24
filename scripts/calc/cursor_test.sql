@@ -6,7 +6,7 @@ end;
 begin
   log_pkg.enable_output;
 end;
-fk_pay_order := 23908544
+fk_pay_order := 23864557
 */
 --delete from pay_order_filters where fk_pay_order = &po_id;
 declare
@@ -14,7 +14,7 @@ declare
 begin
   log_pkg.enable_output;
   merge into pay_order_filters pof
-  using (select l_po_id fk_pay_order, 'CONTRACT' filter_code, 23292187 filter_value from dual
+  using (select l_po_id fk_pay_order, 'CONTRACT' filter_code, 11871949 filter_value from dual
         ) u
   on    (pof.fk_pay_order = u.fk_pay_order and pof.filter_code = u.filter_code and pof.filter_value = u.filter_value)
   when not matched then
