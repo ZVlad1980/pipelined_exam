@@ -84,8 +84,8 @@ create or replace package body import_assignments_pkg is
   end get_sspv_id;
   
   /**
+   * Сбор статистики по заданной таблице и ее индексам
    */
-  
   procedure gather_table_stats(
     p_table_name varchar2
   ) is
@@ -97,7 +97,7 @@ create or replace package body import_assignments_pkg is
     */
     l_time := dbms_utility.get_time;
     put('Start gather stats for ' || p_table_name || ' ... ', false);
-    dbms_stats.gather_table_stats(user, p_table_name);
+    dbms_stats.gather_table_stats(user, p_table_name, cascade => true, degree => 4);
     put('Ok, duration: ' || to_char(dbms_utility.get_time - l_time) || ' ms');
   exception
     when others then
@@ -794,20 +794,54 @@ create or replace package body import_assignments_pkg is
   /**
    * Процедура обновляет статус и периодо действия пенс.соглашений
    */
-  procedure update_pa_periods is
+  procedure update_pa_effective_date is
     cursor l_pa_cur is
       select pa.fk_contract, 
-             pd.data_nach_vypl     effective_date,
+             pd.data_nach_vypl     effective_date
+      from   pension_agreements_v  pa,
+             fnd.sp_pen_dog_v      pd
+      where  1=1
+      and    pd.data_nach_vypl <> pa.effective_date
+      and    pd.ref_kodinsz = pa.fk_contract
+     ;
+    type l_pa_tbl_typ is table of l_pa_cur%rowtype;
+    l_pa_tbl l_pa_tbl_typ;
+  begin
+    open l_pa_cur;
+    fetch l_pa_cur
+      bulk collect into l_pa_tbl;
+    close l_pa_cur;
+    
+    put('update_pa_effective_date: ' || l_pa_tbl.count);
+    
+    forall i in 1..l_pa_tbl.count
+      update pension_agreements pa
+      set    pa.effective_date  = l_pa_tbl(i).effective_date
+      where  pa.fk_contract = l_pa_tbl(i).fk_contract;
+
+  
+  exception
+    when others then
+      fix_exception($$PLSQL_LINE, 'update_pa_effective_date');
+      raise;
+  end update_pa_effective_date;
+  
+  /**
+   * Процедура обновляет статус и периодо действия пенс.соглашений
+   */
+  procedure update_pa_expiration_date is
+    cursor l_pa_cur is
+      select pa.fk_contract, 
              pd.pd_data_okon_vypl  expiration_date
       from   pension_agreements_v  pa,
              transform_contragents tc,
              fnd.sp_pen_dog_v      pd
       where  1=1
-      and    pa.effective_date <> pd.data_nach_vypl
-      and    coalesce(pa.expiration_date, sysdate) <> coalesce(pd.pd_data_okon_vypl, sysdate)
+      and    (coalesce(pa.expiration_date, sysdate) <> coalesce(pd.pd_data_okon_vypl, sysdate))
       and    pd.data_nach_vypl = pa.effective_date
       and    pd.ssylka = tc.ssylka_fl
-      and    tc.fk_contract = pa.fk_base_contract;
+      and    tc.fk_contract = pa.fk_base_contract
+     ;
     type l_pa_tbl_typ is table of l_pa_cur%rowtype;
     l_pa_tbl l_pa_tbl_typ;
   begin
@@ -820,16 +854,15 @@ create or replace package body import_assignments_pkg is
     
     forall i in 1..l_pa_tbl.count
       update pension_agreements pa
-      set    pa.effective_date  = l_pa_tbl(i).effective_date,
-             pa.expiration_date = l_pa_tbl(i).expiration_date
+      set    pa.expiration_date = l_pa_tbl(i).expiration_date
       where  pa.fk_contract = l_pa_tbl(i).fk_contract;
 
   
   exception
     when others then
-      fix_exception($$PLSQL_LINE, 'update_pa_periods');
+      fix_exception($$PLSQL_LINE, 'update_pa_expiration_date');
       raise;
-  end update_pa_periods;
+  end update_pa_expiration_date;
   
   /**
    * Процедура обновляет дату перехода с ИПС на ССПВ для 5 схемы
@@ -881,10 +914,10 @@ create or replace package body import_assignments_pkg is
     p_commit boolean default true
   ) is
   begin
-    
     update_pa_period_code;
     update_pa_state;
-    update_pa_periods;
+    update_pa_effective_date;
+    update_pa_expiration_date;
     update_transfer_date;
     if p_commit then
       commit;
@@ -2336,6 +2369,15 @@ create or replace package body import_assignments_pkg is
     import_pa_addendums(p_commit => p_commit);
     put_('Start import restrinctions');
     import_pay_restrictions(p_commit => p_commit);
+    
+    if p_import_assignemnts then
+      put_('Start import assignments');
+      import_assignments(
+        p_from_date => p_from_date,
+        p_to_date   => p_to_date  
+      );
+    end if;
+    
     put_('Complete');
     --
   exception
