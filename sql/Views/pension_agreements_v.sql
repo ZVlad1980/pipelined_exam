@@ -18,7 +18,8 @@ create or replace view pension_agreements_v as
          pa.creation_date,
          pa.last_update,
          bcn.fk_cntr_type                            fk_base_cntr_type,
-         bcn.fk_scheme                               fk_base_scheme
+         bcn.fk_scheme                               fk_base_scheme,
+         pa.date_pension_age
   from   pension_agreements pa,
          contracts          cn,
          contracts          bcn

@@ -12,7 +12,8 @@ create or replace view pension_agreements_active_v as
          pa.expiration_date,
          pa.pa_amount,
          pa.last_pay_date,
-         pa.creation_date
+         pa.creation_date,
+         pa.date_pension_age
   from   pension_agreements_v      pa
   where  1 = 1
   and    pa.state = 1

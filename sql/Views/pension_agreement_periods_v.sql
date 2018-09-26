@@ -15,7 +15,8 @@ create or replace view pension_agreement_periods_v as
          paa.expiration_date,
          paa.pa_amount,
          paa.last_pay_date,
-         paa.creation_date
+         paa.creation_date,
+         paa.date_pension_age
   from   pension_agreement_periods   pap,
          pension_agreements_active_v paa
   where  paa.fk_contract = pap.fk_pension_agreement
