@@ -904,7 +904,7 @@ create or replace package body import_assignments_pkg is
               and    p.fk_contragent = cn.fk_contragent
               and    cn.fk_document = pa.fk_contract
              ) pa
-      where  pa.date_pension_age <= last_pay_date
+      where  pa.date_pension_age <= pa.last_pay_date
      ;
     type l_pa_tbl_typ is table of l_pa_cur%rowtype;
     l_pa_tbl l_pa_tbl_typ;
@@ -914,7 +914,7 @@ create or replace package body import_assignments_pkg is
       bulk collect into l_pa_tbl;
     close l_pa_cur;
     
-    put('update_pa_date_pen_age: ' || l_pa_tbl.count);
+    put('update_pa_date_pen_age(' || to_char(p_effective_date, 'dd.mm.yyyy') || '): ' || l_pa_tbl.count);
     
     forall i in 1..l_pa_tbl.count
       update pension_agreements pa

@@ -3,6 +3,7 @@ create or replace view pension_agreement_periods_v as
          pap.calc_date,
          pap.check_date,
          pap.pa_effective_date,
+         pap.is_disabled_pa,
          paa.fk_base_contract,
          paa.state,
          paa.period_code,

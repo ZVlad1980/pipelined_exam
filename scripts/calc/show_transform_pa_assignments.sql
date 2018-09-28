@@ -49,3 +49,13 @@ group by po.ssylka_doc, po.fk_pay_order, po.operation_date,
          po.payment_period, po.min_date_op, po.max_date_op, 
          po.cnt_date_op
 order by po.payment_period
+/*
+select min(po.operation_date) min_operation_date,
+       max(po.operation_date) max_operation_date,
+       min(asg.paydate)       min_paydate,
+       max(asg.paydate)       max_paydate,
+       count(1)               cnt
+from   assignments asg,
+       pay_orders  po
+where  po.fk_document = asg.fk_doc_with_action
+*/
