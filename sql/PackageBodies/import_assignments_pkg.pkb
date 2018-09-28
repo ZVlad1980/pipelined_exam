@@ -865,6 +865,70 @@ create or replace package body import_assignments_pkg is
   end update_pa_expiration_date;
   
   /**
+   * Процедура обновляет статус и периодо действия пенс.соглашений
+   */
+  procedure update_pa_date_pen_age(
+    p_effective_date date
+  ) is
+    cursor l_pa_cur(p_next_year_date date) is
+      with w_disabled_pa as (
+        select  pa.fk_contract, 
+                pa.period_code
+        from    pay_portfolios       pp,
+                pay_decisions        pd,
+                pension_agreements   pa
+        where   1=1
+        and     pa.date_pension_age is null
+        and     pa.fk_contract = pd.fk_pension_agreement
+        and     pd.fk_pay_portfolio = pp.id
+        and     pp.fk_app_type = 5 
+      )
+      select pa.fk_contract,
+             pa.date_pension_age
+      from   (
+              select pa.fk_contract,
+                     trunc(add_months(p.birthdate, 12 * 
+                       case p.gender 
+                         when 'ж' then 55 
+                         else          60 
+                       end + 1), 'MM'
+                     ) date_pension_age,
+                     least(add_months(p_effective_date, pa.period_code - 1), 
+                       coalesce(p.deathdate, p_next_year_date),
+                       p_next_year_date
+                     )       last_pay_date
+              from   w_disabled_pa   pa,
+                     contracts       cn,
+                     people          p
+              where  1=1
+              and    p.fk_contragent = cn.fk_contragent
+              and    cn.fk_document = pa.fk_contract
+             ) pa
+      where  pa.date_pension_age <= pa.last_pay_date
+     ;
+    type l_pa_tbl_typ is table of l_pa_cur%rowtype;
+    l_pa_tbl l_pa_tbl_typ;
+  begin
+    open l_pa_cur(add_months(trunc(p_effective_date, 'Y'), 12));
+    fetch l_pa_cur
+      bulk collect into l_pa_tbl;
+    close l_pa_cur;
+    
+    put('update_pa_date_pen_age(' || to_char(p_effective_date, 'dd.mm.yyyy') || '): ' || l_pa_tbl.count);
+    
+    forall i in 1..l_pa_tbl.count
+      update pension_agreements pa
+      set    pa.date_pension_age = l_pa_tbl(i).date_pension_age
+      where  pa.fk_contract = l_pa_tbl(i).fk_contract;
+
+  
+  exception
+    when others then
+      fix_exception($$PLSQL_LINE, 'update_pa_date_pen_age');
+      raise;
+  end update_pa_date_pen_age;
+  
+  /**
    * Процедура обновляет дату перехода с ИПС на ССПВ для 5 схемы
    */
   procedure update_transfer_date is
@@ -911,6 +975,7 @@ create or replace package body import_assignments_pkg is
    * Процедура обновляет состояние, срок действия и периодичность выплат пенсионных соглашений
    */
   procedure update_pension_agreements(
+    p_effective_date date,
     p_commit boolean default true
   ) is
   begin
@@ -918,6 +983,7 @@ create or replace package body import_assignments_pkg is
     update_pa_state;
     update_pa_effective_date;
     update_pa_expiration_date;
+    update_pa_date_pen_age(p_effective_date);
     update_transfer_date;
     if p_commit then
       commit;
@@ -1028,7 +1094,10 @@ create or replace package body import_assignments_pkg is
       commit;
     end if;
     
-    update_pension_agreements(p_commit);
+    update_pension_agreements(
+      p_effective_date => p_to_date, 
+      p_commit         => p_commit
+    );
     /*
     gather_table_stats('CONTRACTS');
     gather_table_stats('DOCUMENTS');

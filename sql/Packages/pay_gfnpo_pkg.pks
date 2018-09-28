@@ -8,14 +8,17 @@ create or replace package pay_gfnpo_pkg authid definer is
    * Набор типов для конвейрной функции get_assignments_calc
    */
   type t_assignments_rec_typ is record(
+    fk_pay_order          number(10),
     fk_contract           number(10),
     fk_debit              number(10),
     fk_credit             number(10),
+    fk_asgmt_type         number(10),
     fk_company            number(10),
     fk_scheme             number(5),
     fk_contragent         number(10),
     paydate               date,
     amount                number,
+    fk_paycode            number(10),
     paydays               number,
     addendum_from_date    date,
     last_pay_date         date,
@@ -93,8 +96,7 @@ create or replace package pay_gfnpo_pkg authid definer is
    *  по заданному курсору. Выполняет контроль ошибок и формирует протокол расчета.
    */
   function get_assignments_calc(
-    p_cursor       t_assignments_cur,
-    p_fk_pay_order number
+    p_cursor       t_assignments_cur
   ) return t_assignments_tbl_typ
     pipelined
     parallel_enable(partition p_cursor by hash (fk_contract));

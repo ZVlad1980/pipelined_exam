@@ -1,23 +1,20 @@
 with w_asg as (
-select distinct asg.fk_doc_with_acct
-from   (
-        select asg.fk_doc_with_acct, asg.paydate, round(asg.amount, 2) amount
-        from   assignments_gf asg
-        minus
-        select asg.fk_doc_with_acct, asg.paydate, round(asg.amount, 2) amount
-        from   assignments_fnd asg
-        where  1=1
-        --and    asg.fk_asgmt_type = 2 
-        and    asg.fk_doc_with_acct = 2796396
-        --minus
-       ) asg
-       where asg.fk_doc_with_acct not in (
-               2796396,
-               23518353,
-               23539988,
-               23640265,
-               23640295
-             )
+  select distinct asg.fk_doc_with_acct
+  from   (
+          select asg.fk_doc_with_acct, asg.paydate, round(asg.amount, 2) amount
+          from   assignments_fnd asg
+          minus
+          select asg.fk_doc_with_acct, asg.paydate, round(asg.amount, 2) amount
+          from   assignments_gf asg
+          --minus
+         ) asg
+  where asg.fk_doc_with_acct not in (
+                 2796396,
+                 23518353,
+                 23539988,
+                 23640265,
+                 23640295
+               )
 )
 select asg2.fk_doc_with_acct,
        asg2.fk_debit,

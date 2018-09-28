@@ -9,15 +9,16 @@ create or replace package body pay_gfnpo_pkg is
   
   GC_LM_ASSIGNMENTS  constant number := 1;
   
-  GC_ASG_PAY_CODE        constant number := 5000;  -- начисление, код выплата пенсии
+  GC_ASG_PAY_CODE        constant number := 5000;  -- начисление, код выплаты пенсии по возрасту
+  GC_ASG_PAY_CODE_DIS    constant number := 5066;  -- начисление, код выплаты пенсии по инвалидности
   
   --Типы соглашений для начисления пенсий
   GC_CT_ALL              constant varchar2(10) := 'ALL';    --все
   GC_CT_PERIOD           constant varchar2(10) := 'PERIOD'; --срочные
   GC_CT_LIFE             constant varchar2(10) := 'LIFE';   --по жизненно
   
-  GC_ASG_OP_TYPE         constant number := 2;      -- начисление, код типа для записей начисления пенсии
-  
+  GC_APP_DIS_PRSN        constant number := 5;      --тип портфолио по инвалидному заявлению
+  GC_ASG_OP_TYPE         constant number := 2;      --начисление, код типа для записей начисления пенсии
   GC_PO_TYPE_PEN         constant number := 5;      --платежка по пенсии
   
   GC_POFLTR_COMPANY  constant varchar2(10) := 'COMPANY';
@@ -539,6 +540,7 @@ w_sspv as (
 ),
 w_pension_agreements as (
   select /*+ materialize*/ 
+     po.fk_document fk_pay_order,
      pa.fk_pension_agreement,
      pa.calc_date,
      pa.fk_base_contract,
@@ -573,7 +575,9 @@ w_pension_agreements as (
          ''' || GC_SCH_REST || '''
        else
          ''UNKNOWN''
-     end scheme_type
+     end scheme_type,
+     pa.is_disabled_pa,
+     pa.date_pension_age
  from  pension_agreement_periods_v   pa,
        w_pay_order                   po,
        w_sspv                        sspv,
@@ -584,14 +588,17 @@ w_pension_agreements as (
  and    pa.effective_date <= po.end_month '
 || l_pa_where || chr(10) || ')' || chr(10) ||
 'select /*+ parallel(' || to_char(p_parallel) || ') */
+       pa.fk_pay_order,
        pa.fk_pension_agreement,
        pa.fk_debit,
        pa.fk_credit,
+       ' || GC_ASG_OP_TYPE || ' fk_asgmt_type,
        pa.fk_company,
        pa.fk_scheme,
        pa.fk_contragent,
        pa.paydate,
        pa.amount,
+       pa.fk_paycode,
        pa.paydays,
        pa.addendum_from_date,
        pa.last_pay_date,
@@ -605,7 +612,8 @@ w_pension_agreements as (
        pa.is_ips,
        pa.scheme_type
 from   (
-          select pa.fk_pension_agreement,
+          select pa.fk_pay_order,
+                 pa.fk_pension_agreement,
                  pa.fk_debit,
                  pa.fk_credit,
                  pa.fk_company,
@@ -619,6 +627,7 @@ from   (
                      pa.first_amount 
                    else pa.amount 
                  end amount,
+                 pa.fk_paycode,
                  case
                    when pa.special_calc = ''Y'' then
                      pay_gfnpo_pkg.get_pay_days(pa.fk_pension_agreement, pa.month_date)
@@ -634,7 +643,8 @@ from   (
                  pa.is_ips,
                  pa.scheme_type
           from   (
-                  select pa.fk_pension_agreement,
+                  select pa.fk_pay_order,
+                         pa.fk_pension_agreement,
                          pa.fk_debit,
                          pa.fk_credit,
                          pa.fk_company,
@@ -644,6 +654,12 @@ from   (
                          m.end_month_date,
                          paa.first_amount ,
                          paa.amount ,
+                         case 
+                           when pa.is_disabled_pa = ''Y'' and
+                             (pa.date_pension_age is null or pa.date_pension_age > m.month_date)
+                           then ' || GC_ASG_PAY_CODE_DIS || '
+                           else ' || GC_ASG_PAY_CODE     || '
+                         end fk_paycode,
                          paa.from_date addendum_from_date,
                          pa.last_pay_date,
                          pa.effective_date,
@@ -675,7 +691,7 @@ from   (
                            select 1
                            from   assignments a
                            where  1=1
-                           and    a.fk_paycode = ' || GC_ASG_PAY_CODE || '
+                           and    a.fk_paycode in (' || GC_ASG_PAY_CODE || ', ' || GC_ASG_PAY_CODE_DIS || ')
                            and    a.fk_doc_with_acct = pa.fk_pension_agreement
                            and    a.paydate between m.month_date and m.end_month_date 
                            and    a.fk_asgmt_type = ' || GC_ASG_OP_TYPE || '
@@ -721,8 +737,7 @@ from   (
    * Конвейерная функция для параллельного обхода курсора p_cursor 
    */
   function get_assignments_calc(
-    p_cursor       t_assignments_cur,
-    p_fk_pay_order number
+    p_cursor       t_assignments_cur
   ) return t_assignments_tbl_typ
     pipelined
     parallel_enable(partition p_cursor by hash (fk_contract))
@@ -739,6 +754,13 @@ from   (
       p_msg       varchar2 default null
     ) is
     begin
+      
+      if G_LOG_TOKEN <> p_rec.fk_pay_order then
+        init_exception(
+          GC_LM_ASSIGNMENTS,
+          p_rec.fk_pay_order
+        );
+      end if;
       
       log_write(
         p_msg_level => p_msg_level,
@@ -760,7 +782,7 @@ from   (
     --
     --
     --
-    function check_errors_(
+    function check_(
       p_rec     in out nocopy t_assignments_rec_typ
     ) return boolean is
       l_result boolean;
@@ -784,7 +806,7 @@ from   (
       
       return l_result;
       
-    end check_errors_;
+    end check_;
     
     --
     --
@@ -830,11 +852,6 @@ from   (
     
   begin
     
-    init_exception(
-      GC_LM_ASSIGNMENTS,
-      p_fk_pay_order
-    );
-    
     loop
       
       fetch p_cursor 
@@ -842,7 +859,7 @@ from   (
       
       exit when p_cursor%notfound;
       
-      continue when check_errors_(p_rec) or (p_rec.is_ips = 'Y' and check_rest_ips_(p_rec)); 
+      continue when check_(p_rec) or (p_rec.is_ips = 'Y' and check_rest_ips_(p_rec)); 
 
       pipe row(p_rec);
       
@@ -853,18 +870,9 @@ from   (
   /**
    *
    */
-  procedure calc_assignments(
-    p_pay_order          g_pay_order_typ,
-    p_parallel           number,
-    p_error_tag          varchar2/*,
-    p_filter_company     varchar2,
-    p_filter_contract    varchar2*/
-  ) is
-    
-    l_contract_type varchar2(10);
-    
-    procedure insert_assignments_(
-      p_agreements_cur   sys_refcursor
+  procedure insert_assignments(
+      p_agreements_cur   sys_refcursor,
+      p_error_tag        varchar2
     ) is
       l_start_time date;
     begin
@@ -887,19 +895,19 @@ from   (
         fk_scheme,
         serv_doc
       ) select assignment_seq.nextval,
-               p_pay_order.pay_order_id,
+               t.fk_pay_order,
                t.fk_contract,
                t.fk_debit,
                t.fk_credit,
-               GC_ASG_OP_TYPE,  -- код "начисление пенсии"
+               t.fk_asgmt_type, --GC_ASG_OP_TYPE,  -- код "начисление пенсии"
                t.fk_contragent,
                t.paydate,
                t.amount,
-               GC_ASG_PAY_CODE, -- тип начисляемой пенсии (пожизненная/срочная)
+               t.fk_paycode, --GC_ASG_PAY_CODE, -- тип начисляемой пенсии (пожизненная/срочная)
                t.paydays,
                t.fk_scheme,
                t.fk_contract
-        from   table(pay_gfnpo_pkg.get_assignments_calc(p_agreements_cur, p_pay_order.pay_order_id)) t
+        from   table(pay_gfnpo_pkg.get_assignments_calc(p_agreements_cur)) t
       log errors into err$_assignments (p_error_tag) reject limit unlimited;
       
       close p_agreements_cur;
@@ -914,7 +922,20 @@ from   (
         end if;
         
         raise;
-    end insert_assignments_;
+    end insert_assignments;
+  
+  /**
+   *
+   */
+  procedure calc_assignments(
+    p_pay_order          g_pay_order_typ,
+    p_parallel           number,
+    p_error_tag          varchar2/*,
+    p_filter_company     varchar2,
+    p_filter_contract    varchar2*/
+  ) is
+    
+    l_contract_type varchar2(10);
   
   begin
     l_contract_type := case to_number(substr(p_pay_order.payment_freqmask, 7, 2)) 
@@ -925,32 +946,35 @@ from   (
     
     if get_filter_code(p_pay_order.pay_order_id) is null and get_pct_period(p_pay_order.payment_period) > 80 then
       --если в текущем периоде более 80% соглашений - считаем его отдельно
-      insert_assignments_(
+      insert_assignments(
         p_agreements_cur  => get_assignments_cur(
               p_pay_order_id    => p_pay_order.pay_order_id,
               p_parallel        => p_parallel,
               p_type_cur        => GC_CURTYP_SIMPLE,
               p_contract_type   => l_contract_type
-            )
+            ),
+        p_error_tag       => p_error_tag
       );
       commit;
-      insert_assignments_(
+      insert_assignments(
         p_agreements_cur  => get_assignments_cur(
               p_pay_order_id    => p_pay_order.pay_order_id,
               p_parallel        => p_parallel,
               p_type_cur        => GC_CURTYP_COMPOUND,
               p_contract_type   => l_contract_type
-            )
+            ),
+        p_error_tag       => p_error_tag
       );
     else
       --иначе считаем все периоды вместе
-      insert_assignments_(
+      insert_assignments(
         p_agreements_cur  => get_assignments_cur(
               p_pay_order_id    => p_pay_order.pay_order_id,
               p_parallel        => p_parallel,
               p_type_cur        => GC_CURTYP_ALL,
               p_contract_type   => l_contract_type
-            )
+            ),
+        p_error_tag       => p_error_tag
       );
     end if;
     
@@ -1166,13 +1190,21 @@ from   (
       using (
              select pac.fk_contract,
                     trunc(pac.effective_date, 'MM') effective_date,
-                    pac.effective_date              pa_effective_date
-             from   pension_agreements_active_v pac
+                    pac.effective_date              pa_effective_date,
+                    case pp.fk_app_type
+                      when GC_APP_DIS_PRSN then
+                        'Y'
+                    end is_disabled_pa
+             from   pension_agreements_active_v pac,
+                    pay_decisions               pd,
+                    pay_portfolios              pp
+             where  pp.id(+) = pd.fk_pay_portfolio
+             and    pd.fk_pension_agreement(+) = pac.fk_contract
             ) u
       on    (pap.fk_pension_agreement = u.fk_contract)
       when not matched then
-        insert(fk_pension_agreement, calc_date, check_date, pa_effective_date)
-          values(u.fk_contract, u.effective_date, u.effective_date, u.pa_effective_date)
+        insert(fk_pension_agreement, calc_date, check_date, pa_effective_date, is_disabled_pa)
+          values(u.fk_contract, u.effective_date, u.effective_date, u.pa_effective_date, u.is_disabled_pa)
       ;
       
       l_new_rows := sql%rowcount;
@@ -1293,6 +1325,18 @@ from   (
       ;
       
       put('update_pa_periods: ' || sql%rowcount || ' row(s) updated');
+      
+      update (
+               select pap.is_disabled_pa
+               from   pension_agreement_periods pap,
+                      pension_agreements        pa
+               where  1=1
+               and    pa.date_pension_age < least(pap.calc_date, pap.check_date)
+               and    pa.fk_contract = pap.fk_pension_agreement
+               and    pap.is_disabled_pa = 'Y'
+             ) u
+      set    u.is_disabled_pa    = null
+      ;
       
       commit;
     exception

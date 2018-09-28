@@ -36,6 +36,7 @@ create or replace package import_assignments_pkg is
    * ѕроцедура обновл€ет состо€ние, срок действи€ и периодичность выплат пенсионных соглашений
    */
   procedure update_pension_agreements(
+    p_effective_date date,
     p_commit boolean default true
   );
   
