@@ -97,7 +97,7 @@ create or replace package body import_assignments_pkg is
     */
     l_time := dbms_utility.get_time;
     put('Start gather stats for ' || p_table_name || ' ... ', false);
-    dbms_stats.gather_table_stats(user, p_table_name, cascade => true, degree => 4);
+    dbms_stats.gather_table_stats(user, p_table_name, cascade => true, degree => 4, options => 'GATHER AUTO');
     put('Ok, duration: ' || to_char(dbms_utility.get_time - l_time) || ' ms');
   exception
     when others then
@@ -2202,6 +2202,7 @@ create or replace package body import_assignments_pkg is
              to_char(vp.tip_vypl) || '/' || to_char(vp.data_nachisl, 'yyyymmdd') comments
       from   transform_pa_assignments tas,
              fnd.vypl_pen_imp_v       vp,  --NEWVIEW vypl_pen_v
+             transform_contragents    tc,
              pension_agreements_v     pa,
              lateral(
                select count(1) cnt
@@ -2221,7 +2222,9 @@ create or replace package body import_assignments_pkg is
              w_sspv sspv
       where  1=1
       and    sspv.fk_scheme(+) = pa.fk_scheme
-      and    pa.fk_contract = vp.ref_kodinsz
+      and    pa.effective_date = vp.data_nach_vypl
+      and    pa.fk_base_contract = tc.fk_contract
+      and    tc.ssylka_fl = vp.ssylka_fl
       and    vp.data_op = tas.date_op
       and    trunc(tas.date_op, 'MM') = p_period --to_date(&p_period, 'yyyymmdd')--p_period
       and    tas.state = 'W'

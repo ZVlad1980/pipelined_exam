@@ -877,6 +877,7 @@ from   (
       l_start_time date;
     begin
   --put('Insert ASSIGNMENTS offline'); close p_agreements_cur; return;
+      execute immediate 'ALTER SESSION ENABLE PARALLEL DML';
       
       l_start_time := sysdate;
       put('start insert_assignments_ (at ' || to_char(sysdate, 'dd.mm.yyyy hh24:mi:ss') || ')... ', false);

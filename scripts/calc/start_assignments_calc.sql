@@ -53,7 +53,11 @@ declare
   
 begin
   --dbms_session.reset_package; return;
-  --
+  
+  --grant execute on sys.DBMS_MONITOR to gazfond
+  dbms_monitor.session_trace_enable;
+  
+  
   l_po_id := create_po();
   dbms_output.put_line('Assignments with PO: ' || l_po_id || ', operation date: ' || to_char(C_OPERATION_DATE, 'dd.mm.yyyy'));
   
@@ -75,6 +79,7 @@ begin
     when others then
       log_pkg.show_errors_all;
   end;
+  dbms_monitor.session_trace_disable;
   log_pkg.put('Complete at ' || to_char(sysdate, 'dd.mm.yyyy hh24:mi:ss'));
   log_pkg.put(' Duration: ' || to_char(round((sysdate - l_start) * 86400, 3)) || ' sec');
 end;

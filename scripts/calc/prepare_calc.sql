@@ -18,7 +18,7 @@ begin
   import_assignments_pkg.synchronize(
     p_from_date           => to_date(20180601, 'yyyymmdd'),
     p_to_date             => to_date(&date_op, 'yyyymmdd'),
-    p_import_assignemnts  => true --включая импорт начислений
+    p_import_assignemnts  => false--true --включая импорт начислений
   );
 exception
   when others then
